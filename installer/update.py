@@ -33,14 +33,21 @@ def numbers(version):
     return tuple(int(n) for n in m.group(1).split('.')) if m else None
 
 
-def newer_release(current, fetch=fetch_latest):
-    """(tag, url) of the latest release when it is newer than `current`, else None. `fetch` returns the API JSON."""
+def newer_release_info(current, fetch=fetch_latest):
+    """The latest release's JSON when it is newer than `current`, else None. `fetch` returns the API JSON."""
     try:
         info = fetch()
-        tag, url = info['tag_name'], info['html_url']
+        tag = info['tag_name']
+        info['html_url']
         if info.get('prerelease') or info.get('draft') or '-' in tag:   # v0.3.0-rc1 is not a release to offer
             return None
         latest, mine = numbers(tag), numbers(current)
-        return (tag, url) if latest and mine and latest > mine else None
+        return info if latest and mine and latest > mine else None
     except Exception:
         return None
+
+
+def newer_release(current, fetch=fetch_latest):
+    """(tag, url) of the latest release when it is newer than `current`, else None. `fetch` returns the API JSON."""
+    info = newer_release_info(current, fetch)
+    return (info['tag_name'], info['html_url']) if info else None

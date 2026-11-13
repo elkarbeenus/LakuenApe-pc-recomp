@@ -24,6 +24,7 @@ except ImportError:
     ImageGrab = None
 
 from . import ini
+from . import launch
 from . import layout as layouts
 from . import power
 from . import update
@@ -135,7 +136,7 @@ def fix_dpi_awareness():
 
 
 class App:
-    def __init__(self, root, ui_lang, layout, run_args=None, game='totk', check_updates=False):
+    def __init__(self, root, ui_lang, layout, run_args=None, game='totk', check_updates=False, start=None):
         self.root, self.layout = root, layout
         self.game = game
         self.cat = Catalog(ui_lang, game)
@@ -186,10 +187,34 @@ class App:
         tk.Frame(root, height=4, bg=RED).pack(fill='x')   # the DK tie's red under the strip
         self.body = ttk.Frame(root, padding=PAD)
         self.body.pack(fill='both', expand=True)
-        self.frames = {'form': self.build_form(), 'run': self.build_run(), 'finish': self.build_finish()}
+        self.frames = {'form': self.build_form(), 'run': self.build_run(), 'finish': self.build_finish(),
+                       'launch': self.build_launch()}
         self.vars['lang'].set(self.lang_label(self.lang_code))
         self.vars['dest'].trace_add('write', lambda *_: self.refresh_form())
         self.show('form')
+        self.update_info = None    # the newer release's JSON once found (installer/update.py)
+        self.game_process = None   # the game Play started; the window waits for it, hidden
+        start = start or {}
+        self.play_now = bool(start.get('play'))
+        dest = start.get('dest')
+        if dest:
+            self.vars['dest'].set(str(dest))
+        if game == 'bananza' and start.get('auto_start') and dest:
+            self.root.after(300, self.start)   # a new release started by an update: it updates this install
+        elif game == 'bananza' and start.get('launcher'):
+            found = launch.game_in(dest) and Path(dest) or launch.remembered_game()
+            if found:   # a game built before: the window is its launcher
+                self.launch_dest = found
+                self.vars['dest'].set(str(found))
+                self.bind_text(self.launch_text, 'text', 'ui.launch_text', dest=str(found))
+                self.show('launch')
+                if check_updates:
+                    threading.Thread(target=self.check_update_launch, daemon=True).start()
+                elif self.play_now:
+                    self.root.after(100, self.play)
+                return
+        if self.play_now:   # --play without a built game: the setup is what there is to show
+            self.root.deiconify()
         if check_updates:
             self.update_label = ttk.Label(self.body, style='Warn.TLabel', cursor='hand2')
             threading.Thread(target=self.check_update, daemon=True).start()
@@ -378,6 +403,7 @@ class App:
         self.button(bar, 'ui.close', self.on_close).pack(side='right')
         self.open_button = self.button(bar, 'ui.open_folder', self.open_folder)
         self.open_button.pack(side='right', padx=(0, 8))
+        self.finish_play = self.button(bar, 'ui.play', lambda: self.play(self.model.dest), style='Accent.TButton')
         self.back_button = self.button(bar, 'ui.back', lambda: self.show('form'))
         self.back_button.pack(side='left')
         self.power_stop = self.button(bar, 'ui.power_stop', self.stop_power)
@@ -514,6 +540,11 @@ class App:
         if self.closing:
             self.root.destroy()
             return
+        if self.game == 'bananza' and self.model.result == 'ok' and launch.game_in(self.model.dest):
+            launch.remember(self.model.dest)   # the next start opens on this game
+            self.finish_play.pack(side='right', padx=(0, 8))
+        else:
+            self.finish_play.pack_forget()
         action = self.when_done()
         if power.applies(action, self.model.result or 'ok'):
             self.power_action = action
@@ -614,6 +645,105 @@ class App:
                 return
             self.closing = True
             self.cancel()
+            return
+        self.root.destroy()
+
+    # ---- launcher ---------------------------------------------------------------------------------------------------
+
+    def build_launch(self):
+        """The start screen once a game is built (installer/launch.py): Play, the setup again, and a newer release's
+        question, update first or play the current version."""
+        f = ttk.Frame(self.body)
+        bar = ttk.Frame(f)
+        bar.pack(side='bottom', fill='x', pady=(12, 0))
+        self.launch_play = self.button(bar, 'ui.play', self.play, style='Accent.TButton')
+        self.launch_play.pack(side='right')
+        self.button(bar, 'ui.setup_again', lambda: self.show('form')).pack(side='left')
+        self.label(f, 'ui.launch_title', style='Title.TLabel').pack(anchor='w')
+        self.launch_text = ttk.Label(f, wraplength=620, justify='left')
+        self.launch_text.pack(anchor='w', pady=(8, 8))
+        self.update_box = ttk.Frame(f)   # packed when a newer release is found
+        self.update_text = ttk.Label(self.update_box, style='Warn.TLabel', wraplength=620, justify='left')
+        self.update_text.pack(anchor='w', pady=(0, 6))
+        self.update_buttons = ttk.Frame(self.update_box)
+        self.update_buttons.pack(anchor='w')
+        self.button(self.update_buttons, 'ui.update_now', self.do_update, style='Accent.TButton').pack(side='left')
+        self.button(self.update_buttons, 'ui.update_skip', self.play).pack(side='left', padx=(8, 0))
+        self.launch_note = ttk.Label(f, wraplength=620, justify='left')
+        self.launch_note.pack(anchor='w', pady=(8, 0))
+        self.launch_dest = None
+        return f
+
+    def check_update_launch(self):
+        info = update.newer_release_info(self.layout.release)
+        try:
+            self.root.after(0, self.on_update_found, info)
+        except RuntimeError:   # Tk is already gone
+            pass
+
+    def on_update_found(self, info):
+        """A newer release asks before anything starts; without one, --play starts the game at once."""
+        if not info:
+            if self.play_now:
+                self.play()
+            return
+        self.update_info = info
+        self.bind_text(self.update_text, 'text', 'ui.update_found', tag=info['tag_name'], version=self.layout.release)
+        self.update_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
+        self.root.deiconify()
+        self.fit()
+
+    def do_update(self):
+        info = self.update_info
+        image = launch.running_appimage()
+        if not info:
+            return
+        if image is None:   # not started as an AppImage (a checkout, Windows): the release page instead
+            webbrowser.open(info['html_url'])
+            return
+        for w in self.update_buttons.winfo_children():
+            w.state(['disabled'])
+        self.launch_play.state(['disabled'])
+        threading.Thread(target=self.update_worker, args=(info, image), daemon=True).start()
+
+    def update_worker(self, info, image):
+        tag = info['tag_name']
+
+        def progress(done, total):
+            text = self.cat('ui.update_downloading', tag=tag, done=f'{done / 1e6:.0f}', total=f'{total / 1e6:.0f}')
+            self.root.after(0, lambda: self.launch_note.configure(text=text))
+        try:
+            new = launch.download_update(info, launch.update_folder(image), progress)
+            self.root.after(0, lambda: self.launch_note.configure(text=self.cat('ui.update_starting')))
+            launch.start_updated(new, self.launch_dest)
+            self.root.after(500, self.root.destroy)
+        except Exception as e:   # the player keeps the version that works
+            detail = str(e) or type(e).__name__
+            self.root.after(0, self.update_failed, detail)
+
+    def update_failed(self, detail):
+        self.launch_note.configure(text=self.cat('ui.update_failed', detail=detail))
+        for w in self.update_buttons.winfo_children():
+            w.state(['!disabled'])
+        self.launch_play.state(['!disabled'])
+
+    def play(self, dest=None):
+        """Starts the game and waits for it with the window hidden: started from Steam (a non-Steam game pointing at
+        the AppImage, with --play for no window at all), Steam then counts the game as running until it ends."""
+        dest = dest or self.launch_dest or self.vars['dest'].get().strip()
+        try:
+            self.game_process = launch.play(dest)
+        except OSError as e:
+            note = self.launch_note if self.screen == 'launch' else self.power_note
+            note.configure(text=self.cat('ui.play_failed', detail=str(e)))
+            return
+        launch.remember(dest)
+        self.root.withdraw()
+        self.root.after(500, self.wait_game)
+
+    def wait_game(self):
+        if self.game_process and self.game_process.poll() is None:
+            self.root.after(500, self.wait_game)
             return
         self.root.destroy()
 
@@ -805,6 +935,12 @@ def selftest(layout, shots=None, game='totk'):
             app.model.finish(3)
             app.refresh_finish()
             shot(f'finish-cancelled-{tag}')
+            if game == 'bananza':   # the launcher with a newer release's question
+                app.launch_dest = Path(destination)
+                app.bind_text(app.launch_text, 'text', 'ui.launch_text', dest=destination)
+                app.on_update_found({'tag_name': 'v9.9.9', 'html_url': 'https://example.invalid'})
+                app.show('launch')
+                shot(f'launch-{tag}')
             app.toggle_log()
         root.destroy()
 
@@ -857,6 +993,10 @@ def main(argv=None):
         ap.add_argument('--' + name, type=Path)
     ap.add_argument('--jobs', type=int, default=6)
     ap.add_argument('--no-update-check', action='store_true', help='do not look for a newer release (or DKB_NO_UPDATE_CHECK=1)')
+    ap.add_argument('--dest', type=Path, help='the install folder to open on (an update starts with it)')
+    ap.add_argument('--auto-start', action='store_true', help='start the setup on --dest at once (after an update)')
+    ap.add_argument('--play', action='store_true', help='start the game built last time without the window, after '
+                                                        'asking about a newer release if there is one (for Steam)')
     args = ap.parse_args(argv)
     layout = layouts.find(args.root)
     if args.selftest:
@@ -865,8 +1005,11 @@ def main(argv=None):
     fix_dpi_awareness()
     root = tk.Tk()
     tools = {name: getattr(args, name) for name in ('toolchain', 'deps', 'ninja', 'dll_dir', 'translator', 'dotnet', 'jobs')}
+    if args.play:
+        root.withdraw()   # shown again only for a newer release's question
     app = App(root, args.lang or windows_ui_language(), layout, run_args={'tools': tools}, game=args.game,
-              check_updates=not update.disabled(args.no_update_check))
+              check_updates=not update.disabled(args.no_update_check),
+              start={'launcher': True, 'dest': args.dest, 'auto_start': args.auto_start, 'play': args.play})
     if args.package:
         app.vars['package'].set(str(args.package))
     root.mainloop()
