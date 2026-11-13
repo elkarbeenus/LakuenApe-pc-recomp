@@ -11,6 +11,7 @@ import ctypes
 import json
 import os
 import queue
+import shutil
 import signal
 import subprocess
 import sys
@@ -411,3 +412,39 @@ class Process:
     def kill(self):
         if self.proc.poll() is None:
             self.proc.kill()
+
+
+NO_NATIVE = object()   # native_pick: no desktop chooser here, use Tk's
+
+
+def native_pick(title, current='', folder=False, types=(), which=shutil.which, run=subprocess.run):
+    """The desktop's own file chooser on Linux: kdialog (KDE, SteamOS's desktop mode), else zenity (GNOME and others).
+    They follow the desktop's theme and know its places, where Tk's chooser does neither. Returns the path, '' when the
+    player cancels, or NO_NATIVE on Windows, without either program, or with DKB_TK_DIALOGS=1, for Tk's."""
+    if os.name == 'nt' or os.environ.get('DKB_TK_DIALOGS') == '1':
+        return NO_NATIVE
+    start = current if current and os.path.exists(current) else os.path.expanduser('~')
+    patterns = ' '.join(p for _, p in types if p not in ('*.*', '*'))
+    if which('kdialog'):
+        if folder:
+            command = ['kdialog', '--title', title, '--getexistingdirectory', start]
+        else:
+            command = ['kdialog', '--title', title, '--getopenfilename', start,
+                       f'{patterns}|{types[0][0]}' if patterns else '']
+    elif which('zenity'):
+        command = ['zenity', '--file-selection', f'--title={title}', f'--filename={start}/']
+        if folder:
+            command.append('--directory')
+        for label, pattern in types:
+            command.append(f'--file-filter={label} | {pattern.replace("*.*", "*")}')
+    else:
+        return NO_NATIVE
+    try:
+        r = run([c for c in command if c != ''], capture_output=True, text=True)
+    except OSError:
+        return NO_NATIVE
+    if r.returncode == 1:   # both say Cancel with 1
+        return ''
+    if r.returncode != 0:
+        return NO_NATIVE
+    return r.stdout.strip()

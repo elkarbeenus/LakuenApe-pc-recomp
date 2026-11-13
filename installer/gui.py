@@ -25,9 +25,10 @@ except ImportError:
 
 from . import ini
 from . import layout as layouts
+from . import power
 from . import update
-from .guilogic import (DKB_STEP_ORDER, DONE, FAILED, PENDING, RUNNING, SKIPPED, UI_LANGUAGES, Catalog, Form, Model, Process,
-                       amount, default_game_language, describe_event, parse_line, windows_ui_language)
+from .guilogic import (DKB_STEP_ORDER, DONE, FAILED, NO_NATIVE, PENDING, RUNNING, SKIPPED, UI_LANGUAGES, Catalog, Form, Model,
+                       Process, amount, native_pick, default_game_language, describe_event, parse_line, windows_ui_language)
 
 POLL_MS = 100
 GLYPH = {PENDING: '\u25cb', RUNNING: '\u25b6', DONE: '\u2714', SKIPPED: '\u2013', FAILED: '\u2716'}
@@ -37,7 +38,7 @@ GLYPH = {PENDING: '\u25cb', RUNNING: '\u25b6', DONE: '\u2714', SKIPPED: '\u2013'
 BARK, FRAME, BORDER, FIELD, HOVER = '#2a1a0e', '#3b2614', '#6b4a2a', '#1d1109', '#4d331b'
 BANANA, CREAM, MUTED = '#f6c52b', '#f3e9d2', '#b8a888'
 RED, RED_TEXT, GREEN, GREEN_TEXT = '#c8281e', '#ff8a7a', '#3f8f3a', '#6fcf68'
-BRAND = 'DONKEY KONG BANANZA  ·  PC RECOMP'
+BRAND = 'LAKÜEAPERECOMP  ·  DONKEY KONG BANANZA'   # the fork's name (runtime/port_name.h)
 COLOR = {PENDING: MUTED, RUNNING: BANANA, DONE: GREEN_TEXT, SKIPPED: MUTED, FAILED: RED_TEXT}
 PAD = 14
 
@@ -229,6 +230,7 @@ class App:
         for widget, option, id, params in self.bound:
             widget.configure(**{option: self.cat(id, **params)})
         self.fill_languages()
+        self.fill_when_done()
         self.refresh_form()
         self.refresh_run()
         self.refresh_finish()
@@ -339,6 +341,13 @@ class App:
         self.cancel_button.pack(side='right')
         self.log_toggle = self.button(bar, 'ui.show_log', self.toggle_log)
         self.log_toggle.pack(side='left')
+        # What the computer does when the install ends (installer/power.py), for a build left running overnight
+        self.label(bar, 'ui.when_done').pack(side='left', padx=(16, 6))
+        self.when_done_box = ttk.Combobox(bar, state='readonly', width=22)
+        self.when_done_box.pack(side='left')
+        self.when_done_action = 'none'   # one of power.ACTIONS; kept by index, so a language switch keeps it
+        self.when_done_box.bind('<<ComboboxSelected>>', lambda _e: self.pick_when_done())
+        self.fill_when_done()
         self.run_header = ttk.Label(f, font=(self.ui_font, 11, 'bold'))
         self.run_header.pack(anchor='w')
         self.step_rows = {}
@@ -371,6 +380,10 @@ class App:
         self.open_button.pack(side='right', padx=(0, 8))
         self.back_button = self.button(bar, 'ui.back', lambda: self.show('form'))
         self.back_button.pack(side='left')
+        self.power_stop = self.button(bar, 'ui.power_stop', self.stop_power)
+        self.power_note = ttk.Label(bar, style='Warn.TLabel')
+        self.power_note.pack(side='left', padx=(12, 0))
+        self.power_left = None   # seconds of a running countdown, None without one
         self.finish_title = ttk.Label(f, style='Title.TLabel', wraplength=620, justify='left')
         self.finish_title.pack(anchor='w')
         self.finish_text = ttk.Label(f, wraplength=620, justify='left')
@@ -404,12 +417,16 @@ class App:
     def pick_file(self, name, pick_id):
         if self.game == 'bananza' and name == 'nup':
             types = [(self.cat('dkb.ui.type_nup'), '*.nup'), (self.cat('ui.type_all'), '*.*')]
-            path = filedialog.askopenfilename(title=self.cat(pick_id), filetypes=types)
+            path = native_pick(self.cat(pick_id), self.vars[name].get(), types=types)
+            if path is NO_NATIVE:
+                path = filedialog.askopenfilename(title=self.cat(pick_id), filetypes=types)
             if path:
                 self.vars[name].set(os.path.normpath(path))
             return
         if self.game == 'bananza':
-            path = filedialog.askdirectory(title=self.cat(pick_id), mustexist=True)
+            path = native_pick(self.cat(pick_id), self.vars[name].get(), folder=True)
+            if path is NO_NATIVE:
+                path = filedialog.askdirectory(title=self.cat(pick_id), mustexist=True)
             if path:
                 self.vars[name].set(os.path.normpath(path))
             return
@@ -423,7 +440,10 @@ class App:
             self.vars[name].set(os.path.normpath(path))
 
     def pick_dest(self):
-        path = filedialog.askdirectory(title=self.cat('ui.pick_dest'), mustexist=False)
+        path = native_pick(self.cat('ui.pick_dest'), self.vars['dest'].get(), folder=True) if self.game == 'bananza' \
+            else NO_NATIVE
+        if path is NO_NATIVE:
+            path = filedialog.askdirectory(title=self.cat('ui.pick_dest'), mustexist=False)
         if path:
             self.vars['dest'].set(os.path.normpath(path))
 
@@ -445,6 +465,9 @@ class App:
     def begin(self, command, cwd):
         self.model = Model(DKB_STEP_ORDER if self.game == 'bananza' else None)
         self.model.dest = self.vars['dest'].get().strip()
+        if self.power_left is not None:   # a new run ends the last one's countdown
+            self.stop_power()
+        self.power_note.configure(text='')
         self.clear_log()
         self.build_step_rows(self.model.steps)
         self.cancel_button.configure(state='normal')
@@ -490,6 +513,12 @@ class App:
         self.show('finish')
         if self.closing:
             self.root.destroy()
+            return
+        action = self.when_done()
+        if power.applies(action, self.model.result or 'ok'):
+            self.power_action = action
+            self.power_stop.pack(side='left', padx=(12, 0))
+            self.power_tick(power.COUNTDOWN_S)
 
     def feed(self, line):
         """One stdout line of the CLI: an event updates the model and the log, anything else goes to the log as is."""
@@ -587,6 +616,45 @@ class App:
             self.cancel()
             return
         self.root.destroy()
+
+    # ---- when done --------------------------------------------------------------------------------------------------
+
+    def fill_when_done(self):
+        """The run screen's choices in the current language, keeping the one picked."""
+        self.when_done_box.configure(values=[self.cat('ui.when_done_' + a) for a in power.ACTIONS])
+        self.when_done_box.current(power.ACTIONS.index(self.when_done_action))
+
+    def pick_when_done(self):
+        i = self.when_done_box.current()
+        self.when_done_action = power.ACTIONS[i] if 0 <= i < len(power.ACTIONS) else 'none'
+
+    def when_done(self):
+        return self.when_done_action
+
+    def power_tick(self, left):
+        """One second of the countdown before power.run; stop_power ends it."""
+        self.power_left = left
+        if left is None:
+            return
+        if left > 0:
+            self.power_note.configure(text=self.cat('ui.power_countdown_' + self.power_action, seconds=left))
+            self.root.after(1000, lambda: self.power_left == left and self.power_tick(left - 1))
+            return
+        self.power_stop.pack_forget()
+        self.power_note.configure(text=self.cat('ui.power_now_' + self.power_action))
+        threading.Thread(target=self.power_run, daemon=True).start()
+
+    def power_run(self):
+        if not power.run(self.power_action):
+            try:
+                self.root.after(0, lambda: self.power_note.configure(text=self.cat('ui.power_failed')))
+            except RuntimeError:
+                pass
+
+    def stop_power(self):
+        self.power_left = None
+        self.power_stop.pack_forget()
+        self.power_note.configure(text=self.cat('ui.power_stopped'))
 
     # ---- finish ---------------------------------------------------------------------------------------------------
 

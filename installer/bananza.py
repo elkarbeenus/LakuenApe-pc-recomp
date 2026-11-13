@@ -806,8 +806,43 @@ def write_owner(path, value):
             raise InstallError('dkb.temp_unrelated', path=str(path.parent)) from None
 
 
+IOPRIO_SET = {'x86_64': 251, 'aarch64': 30}   # the syscall's number per architecture
+IOPRIO_WHO_PROCESS, IOPRIO_CLASS_BE = 1, 2
+
+
+def lower_priority(nice=None, ioprio=None):
+    """Linux: the install and every compiler it starts (they inherit both) at nice 10 and the lowest best-effort disk
+    priority. Alone the build still gets the whole machine; whatever the player does meanwhile, a game or the desktop,
+    comes first. DKB_NICE=0 keeps the normal priority. Returns what was lowered."""
+    if os.name == 'nt' or os.environ.get('DKB_NICE') == '0':
+        return []
+    done = []
+    try:
+        if nice is None:   # to 10, not by 10: a second install in one process (the tests) lowers it no further
+            nice = lambda n: os.getpriority(os.PRIO_PROCESS, 0) < n and os.setpriority(os.PRIO_PROCESS, 0, n)   # noqa: E731
+        nice(10)
+        done.append('cpu')
+    except OSError:
+        pass
+    try:
+        if ioprio is None:
+            import ctypes
+            import platform
+            number = IOPRIO_SET.get(platform.machine())
+            if number is None:
+                return done
+            syscall = ctypes.CDLL(None, use_errno=True).syscall
+            ioprio = lambda value: syscall(number, IOPRIO_WHO_PROCESS, 0, value)   # noqa: E731
+        if ioprio((IOPRIO_CLASS_BE << 13) | 7) == 0:
+            done.append('disk')
+    except (OSError, AttributeError):
+        pass
+    return done
+
+
 def main(options):
     rep = LauncherReporter() if getattr(options, 'prepare', False) else Reporter()
+    lower_priority()
     locks = []
     started = time.monotonic()
     try:
