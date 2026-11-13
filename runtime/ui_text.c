@@ -1,6 +1,6 @@
 // Catalog of the text the host shows the player (ui_text.h). One array per catalog language, indexed by UiTextId: a new
 // string gets an id in ui_text.h and an entry in every language that has one (a missing entry falls back to English).
-// The software keyboard has every language; the menu has English and Russian.
+// The software keyboard has every language; the menu has English, Russian and German.
 #include <stdatomic.h>
 #include <string.h>
 
@@ -256,7 +256,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_PAD_CROSS] = "Cross", [UI_PAD_CIRCLE] = "Circle", [UI_PAD_SQUARE] = "Square", [UI_PAD_TRIANGLE] = "Triangle",
 
     [UI_MENU_MENU_LANG] = "Settings language", [UI_MENU_MENU_LANG_DESC] = "Sets the language of the settings menu and performance overlay. System default uses "
-                             "Russian when your system language is Russian, and English otherwise.",
+                             "German or Russian when your system language is one of them, and English otherwise.",
     [UI_MENU_MENU_LANG_AUTO] = "System default",
     [UI_MENU_THEME] = "Menu theme", [UI_MENU_THEME_DK] = "Donkey Kong", [UI_MENU_THEME_CLASSIC] = "Classic",
     [UI_MENU_THEME_DESC] = "Choose the Donkey Kong theme or the classic green and gold theme.",
@@ -719,10 +719,345 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OV_SCALE_BILINEAR] = "билинейное",
 };
 
+static const char *const text_de[UI_TEXT_COUNT] = {
+    SWKBD("Texteingabe", "Gib einen Namen ein", "Pferd", "OK", "Abbrechen", "Controller: A = OK, B = Abbrechen"),
+
+    [UI_MENU_TITLE] = "Einstellungen",
+    [UI_MENU_TAB_DISPLAY] = "Anzeige", [UI_MENU_TAB_GRAPHICS] = "Grafik",
+    [UI_MENU_TAB_GAME] = "Spiel", [UI_MENU_TAB_SOUND] = "Ton",
+    [UI_MENU_TAB_CONTROLS] = "Steuerung", [UI_MENU_TAB_MENU] = "Menü", [UI_MENU_TAB_ADVANCED] = "Erweitert",
+    [UI_MENU_CONTINUE] = "Weiter", [UI_MENU_QUIT] = "Spiel beenden",
+    [UI_MENU_ON] = "An", [UI_MENU_OFF] = "Aus", [UI_MENU_AUTO] = "Automatisch", [UI_MENU_IS_DEFAULT] = "Standard",
+    [UI_MENU_AFTER_RESTART] = "Neustart nötig", [UI_MENU_SET_BY_ENV] = "Durch Umgebungsvariable festgelegt",
+    [UI_MENU_SAVE_FAILED] = "Einstellungen konnten nicht gespeichert werden",
+    [UI_MENU_VERSION] = PORT_NAME " %s, Spiel %s",
+
+    [UI_MENU_FULLSCREEN] = "Vollbild", [UI_MENU_FULLSCREEN_DESC] = "Das Spiel füllt den Bildschirm; F11 schaltet um.",
+    [UI_MENU_WINDOW_MODE] = "Fenstermodus",
+    [UI_MENU_WINDOW_MODE_DESC] = "F11 wechselt zwischen Fenster und dem zuletzt genutzten Vollbildmodus.",
+    [UI_MENU_WINDOW_MODE_WINDOWED] = "Fenster", [UI_MENU_WINDOW_MODE_BORDERLESS] = "Rahmenlos",
+    [UI_MENU_WINDOW_MODE_FULLSCREEN] = "Vollbild",
+    [UI_MENU_WINDOW_SIZE] = "Fenstergröße", [UI_MENU_WINDOW_SIZE_DESC] = "Legt die Größe des Desktop-Fensters im Fenstermodus fest.",
+    [UI_MENU_WINDOW_SIZE_CUSTOM] = "Eigene",
+    [UI_MENU_WINDOWED_ONLY] = "Nur im Fenstermodus verfügbar",
+    [UI_MENU_PRESENT] = "Bildsynchronisation", [UI_MENU_PRESENT_DESC] = "VSync wartet auf die Bildwiederholung des Bildschirms.\n"
+                             "Mailbox zeigt bei jeder Bildwiederholung das neueste fertige Bild, wenn unterstützt.\n"
+                             "Sofort gibt Bilder aus, sobald sie fertig sind, und kann Tearing verursachen.",
+    [UI_MENU_PRESENT_MAILBOX] = "Mailbox", [UI_MENU_PRESENT_VSYNC] = "VSync", [UI_MENU_PRESENT_IMMEDIATE] = "Sofort",
+    [UI_MENU_PRESENT_IN_USE] = "aktiv: %s",
+    [UI_MENU_GPU] = "Grafikkarte", [UI_MENU_GPU_DESC] = "Wähle, welche Grafikkarte das Spiel ausführt. Nutze Automatisch, außer du brauchst eine bestimmte Karte.",
+    [UI_MENU_GPU_AUTO] = "Automatisch",
+    [UI_MENU_PERF_OVERLAY] = "Leistungsanzeige",
+    [UI_MENU_PERF_OVERLAY_DESC] = "Zeigt die FPS oben rechts. Voll zeigt zusätzlich einen Frametime-Graphen und Hardware-Werte. F10 wechselt durch die Modi.",
+    [UI_MENU_PERF_OFF] = "Aus", [UI_MENU_PERF_FPS] = "FPS", [UI_MENU_PERF_FULL] = "Voll",
+    [UI_PERF_LINE_FPS] = "%.0f FPS",
+    [UI_MENU_RESOLUTION_GROUP] = "Auflösung",
+    [UI_MENU_DISPLAY_OUTPUT] = "Bildausgabe",
+    [UI_MENU_RENDER_OPTIONS] = "Render-Optionen",
+    [UI_MENU_OUTPUT_RES] = "Render-Auflösung",
+    [UI_MENU_ULTRAWIDE] = "Ultrawide",
+    [UI_MENU_ENABLE_ULTRAWIDE] = "Ultrawide aktivieren",
+    [UI_MENU_ULTRAWIDE_DESC] = "Verbreitert die Spielansicht für 21:9- und 32:9-Bildschirme.",
+    [UI_MENU_WIDE_RES] = "Render-Auflösung",
+    [UI_MENU_WIDE_RES_DESC] = "Legt die Auflösung des Spielbilds fest, bevor es auf deinen Bildschirm skaliert wird. "
+                             "Höhere Auflösungen können schärfer aussehen und brauchen mehr GPU-Leistung und Grafikspeicher.\n\n"
+                             "Aktiviere Ultrawide für 21:9- und 32:9-Optionen.",
+    [UI_MENU_HUD_POSITION] = "HUD-Position",
+    [UI_MENU_HUD_POSITION_DESC] = "Eckanzeigen nah an den Bildschirmrändern platzieren oder in einem zentrierten 16:9-"
+                                 "Bereich halten. Menüs und Zielmarkierungen bleiben in der Mitte.",
+    [UI_MENU_HUD_EDGES] = "Bildschirmränder", [UI_MENU_HUD_CENTERED] = "Zentriert (16:9)",
+    [UI_MENU_WIDE_DISABLED] = "Erst Ultrawide aktivieren",
+    [UI_MENU_OUTPUT_RES_DESC] = "Die Größe, in der das Spiel Bild und Oberfläche zeichnet. Über 1920 x 1080 braucht das "
+                                "Spiel mehr Grafikspeicher und GPU-Zeit. Ein breiteres Format (21:9) verbreitert die Sicht "
+                                "der Kamera und rückt das HUD in die Bildschirmecken; ein höheres (16:10, Steam Deck) an den "
+                                "oberen und unteren Rand.",
+    [UI_MENU_RENDER_SCALE] = "3D-Renderskalierung",
+    [UI_MENU_RENDER_SCALE_DESC] = "Größe der 3D-Szene im Verhältnis zur Spielauflösung; das FSR des Spiels skaliert sie "
+                                  "auf diese Größe. Über 100 % glättet Kanten (Supersampling) bei hohen GPU-Kosten.",
+    [UI_MENU_RENDER_SCALE_GAME] = "Spiel (83 %)",
+    [UI_MENU_SCENE_RES] = "Auflösung der 3D-Szene",
+    [UI_MENU_SCENE_RES_DESC] = "Auto lässt das Spiel seine 3D-Szene je nach Last skalieren, meist auf zwei Drittel der "
+                               "Render-Auflösung je Seite, und dann hochskalieren. Voll zeichnet die 3D-Szene in der ganzen "
+                               "Render-Auflösung: ein schärferes Bild bei höheren GPU-Kosten, ohne Upscaler und DLSS. Gilt ab dem nächsten Start.",
+    [UI_MENU_SCENE_RES_AUTO] = "Auto (Spiel)", [UI_MENU_SCENE_RES_FULL] = "Voll",
+    [UI_MENU_UPSCALER] = "Skalierungsmethode",
+    [UI_MENU_UPSCALER_DESC] = "Greift, wenn das Spielbild kleiner ist als die Fläche, die es auf deinem Bildschirm oder im Fenster füllt. "
+                              "AMD FSR 1 kann Kanten schärfer halten als Bilinear.",
+    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
+    [UI_MENU_ASPECT] = "Bildskalierung",
+    [UI_MENU_ASPECT_DESC] = "Standard behält das Format des Spiels und fügt bei Bedarf schwarze Balken hinzu.\n"
+                            "Strecken nutzt das ganze Fenster oder den ganzen Bildschirm. Das Bild wird nur gestreckt, wenn die Formate abweichen.",
+    [UI_MENU_ASPECT_FIT] = "Standard", [UI_MENU_ASPECT_STRETCH] = "Strecken",
+    [UI_MENU_FOV] = "Sichtfeld",
+    [UI_MENU_FOV_DESC] = "Passt die Kamerasicht in Prozent des ursprünglichen Winkels an. 100 % ist die Standardsicht des Spiels.",
+    [UI_MENU_SHARPNESS] = "FSR-Schärfe",
+    [UI_MENU_SHARPNESS_DESC] = "Nachschärfen nach der FSR-Skalierung; 0 schaltet es aus.",
+    [UI_MENU_NO_UPSCALING] = "Braucht ein kleineres Spielbild",
+    [UI_MENU_SHARPNESS_NEEDS_FSR] = "Braucht AMD FSR 1",
+    [UI_MENU_SMAA] = "Kantenglättung (SMAA)",
+    [UI_MENU_SMAA_DESC] = "Glättet gezackte Kanten im Spielbild und HUD. Höhere Stufen brauchen mehr GPU-Zeit.",
+    [UI_MENU_SMAA_LOW] = "Niedrig", [UI_MENU_SMAA_MEDIUM] = "Mittel", [UI_MENU_SMAA_HIGH] = "Hoch",
+    [UI_MENU_COLOR] = "Farbe",
+    [UI_MENU_COLOR_PRESET] = "Farbprofil",
+    [UI_MENU_COLOR_PRESET_DESC] = "Spielstandard nutzt die Originalfarben.\nLebendig (OLED) verstärkt Kontrast und Farben.\n"
+                                  "Klarheit macht das Bild etwas heller und lebendiger.\n\n"
+                                  "Jeder verschobene Regler stellt das Profil auf Eigenes.",
+    [UI_MENU_COLOR_DEFAULT] = "Spielstandard", [UI_MENU_COLOR_VIVID] = "Lebendig (OLED)", [UI_MENU_COLOR_CLARITY] = "Klarheit",
+    [UI_MENU_COLOR_CUSTOM] = "Eigenes",
+    [UI_MENU_COLOR_BRIGHTNESS] = "Helligkeit", [UI_MENU_COLOR_BRIGHTNESS_DESC] = "Macht das Bild heller oder dunkler. Standard ist 0 %.",
+    [UI_MENU_COLOR_CONTRAST] = "Kontrast",
+    [UI_MENU_COLOR_CONTRAST_DESC] = "Höhere Werte machen dunkle Bereiche dunkler und helle heller. Standard ist 100 %.",
+    [UI_MENU_COLOR_SATURATION] = "Sättigung",
+    [UI_MENU_COLOR_SATURATION_DESC] = "Höhere Werte machen Farben kräftiger. Standard ist 100 %.",
+    [UI_MENU_COLOR_GAMMA] = "Gamma",
+    [UI_MENU_COLOR_GAMMA_DESC] = "Unter 1,00 hellt Schatten und Mitteltöne auf, über 1,00 dunkelt sie ab.",
+    [UI_MENU_HDR_GROUP] = "HDR (experimentell)",
+    [UI_MENU_HDR] = "HDR-Ausgabe",
+    [UI_MENU_HDR_DESC] = "Hebt Lichter im SDR-Bild des Spiels auf einem HDR-Bildschirm an.\n\n"
+                         "Aktiviere zuerst HDR in den Anzeigeeinstellungen deines Systems.",
+    [UI_MENU_HDR_NATIVE] = "HDR des Spiels",
+    [UI_MENU_HDR_NATIVE_DESC] = "Nutzt das eigene HDR des Spiels ab Update 3.2.0. Lichter folgen der Spitzenhelligkeit bis 1400 Nits. "
+                                "Dieser Modus schaltet FSR 1, SMAA und die Farbanpassung ab.",
+    [UI_MENU_HDR_PEAK] = "Spitzenhelligkeit",
+    [UI_MENU_HDR_PEAK_DESC] = "Stelle die hellsten Lichter auf die Spitzenhelligkeit deines Bildschirms in Nits ein.",
+    [UI_MENU_HDR_GAME] = "Spielhelligkeit",
+    [UI_MENU_HDR_GAME_DESC] = "Legt die Helligkeit von normalem Weiß im Spiel und HUD fest. Erhöhe sie, wenn das Bild zu dunkel wirkt.",
+    [UI_MENU_HDR_UI] = "Helligkeit des Einstellungsmenüs",
+    [UI_MENU_HDR_UI_DESC] = "Legt die Helligkeit von Weiß in diesem Menü fest. Das HUD des Spiels folgt der Spielhelligkeit.",
+
+    [UI_MENU_FRAME_RATE_GROUP] = "Bildrate",
+    [UI_MENU_FPS_LIMIT] = "Bildratenbegrenzung",
+    [UI_MENU_DKB_FPS_LIMIT_DESC] = "Begrenzt die Bildrate des Spiels. Bildwiederholrate nutzt die aktuelle Bildwiederholrate deines Bildschirms.",
+    [UI_MENU_FPS_LIMIT_DESC] = "Die höchste Bildrate, die das Spiel zeichnet. Über 60 ist experimentell und braucht "
+                               "„Spieltempo folgt der Uhr“. Unbegrenzt ist experimentell.",
+    [UI_MENU_FPS_30] = "30 FPS", [UI_MENU_FPS_40] = "40 FPS", [UI_MENU_FPS_45] = "45 FPS",
+    [UI_MENU_FPS_60] = "60 FPS", [UI_MENU_FPS_90] = "90 FPS", [UI_MENU_FPS_120] = "120 FPS", [UI_MENU_FPS_144] = "144 FPS",
+    [UI_MENU_FPS_DISPLAY] = "Bildwiederholrate", [UI_MENU_FPS_DISPLAY_HZ] = "Bildwiederholrate (%.0f Hz)",
+    [UI_MENU_FPS_UNLIMITED] = "Unbegrenzt",
+    [UI_MENU_FPS_NEEDS_REALTIME] = "„Höhere Bildraten erlauben“ aktivieren und neu starten",
+    [UI_MENU_REALTIME] = "Spieltempo folgt der Uhr",
+    [UI_MENU_REALTIME_DESC] = "Lässt das Spiel nach echter Zeit laufen, damit ein langsames Bild das Spiel nicht bremst.",
+    [UI_MENU_DKB_REALTIME] = "Höhere Bildraten erlauben",
+    [UI_MENU_DKB_REALTIME_DESC] = "Schaltet die Bildratenbegrenzung frei, auch über 60 FPS. "
+                                "Das Timing des Spiels passt sich den FPS an. Dieser Modus ist experimentell.",
+    [UI_MENU_CLOTH_REALTIME] = "Stoff nach der Uhr",
+    [UI_MENU_CLOTH_REALTIME_DESC] = "Lässt auch Stoff und Haare nach echter Zeit laufen.",
+    [UI_MENU_HIGHFPS_FIX] = "Korrekturen für hohe Bildraten",
+    [UI_MENU_HIGHFPS_FIX_DESC] = "Korrigiert Physik, die über 30 Bildern pro Sekunde falsch läuft, und Objekte, die über 60 durchsichtig oder unsichtbar bleiben.",
+    [UI_MENU_GAME_LANG] = "Spielsprache", [UI_MENU_GAME_LANG_DESC] = "Sprache der Texte und Stimmen des Spiels.",
+    [UI_MENU_GAME_LANG_AUTO] = "Automatisch",
+    [UI_MENU_OPERATION_MODE] = "Konsolenmodus",
+    [UI_MENU_OPERATION_MODE_DESC] = "Wähle, welchen Switch-Modus das Spiel nutzt. Docked ist das TV-Profil, Handheld das mobile Profil.",
+    [UI_MENU_MODE_DOCKED] = "Docked", [UI_MENU_MODE_HANDHELD] = "Handheld",
+    [UI_MENU_ASSUME_FOCUS] = "Im Hintergrund weiterlaufen",
+    [UI_MENU_ASSUME_FOCUS_DESC] = "Das Spiel läuft weiter, während du ein anderes Fenster benutzt. Aus pausiert es, wenn du wechselst.\n\n"
+                                  "Pausieren während eines Ladevorgangs kann verhindern, dass er fertig wird.",
+
+    [UI_MENU_VOLUME] = "Lautstärke", [UI_MENU_VOLUME_DESC] = "Regelt die Gesamtlautstärke des Spiels. 0 % schaltet es stumm.",
+    [UI_MENU_AUDIO_CHANNELS] = "Audioausgabe",
+    [UI_MENU_AUDIO_CHANNELS_DESC] = "Wähle Stereo oder 5.1-Surround. Automatisch nutzt 5.1, wenn dein Standard-Audiogerät mindestens sechs Kanäle hat.",
+    [UI_MENU_CHANNELS_AUTO] = "Automatisch", [UI_MENU_CHANNELS_STEREO] = "Stereo", [UI_MENU_CHANNELS_51] = "5.1-Surround",
+
+    [UI_MENU_CONTROLLER] = "Controller", [UI_MENU_MOUSE_KEYBOARD] = "Maus & Tastatur",
+    [UI_MENU_MOTION] = "Bewegungssteuerung", [UI_MENU_MOTION_DESC] = "Zielen mit dem Gyroskop des Controllers.",
+    [UI_MENU_RUMBLE_STRENGTH] = "Vibrationsstärke",
+    [UI_MENU_RUMBLE_STRENGTH_DESC] = "Wie stark der Controller vibriert.",
+    [UI_MENU_RUMBLE_CURVE] = "Vibrationskurve",
+    [UI_MENU_RUMBLE_CURVE_DESC] = "Niedrigere Werte machen leichte Vibration besser spürbar.",
+    [UI_MENU_RUMBLE_TRIGGERS] = "Trigger-Vibration (Xbox)",
+    [UI_MENU_RUMBLE_TRIGGERS_DESC] = "Aktiviert die Vibration in den Triggern unterstützter Xbox-Controller.",
+    [UI_MENU_PAD_LAYOUT] = "Tastenbelegung",
+    [UI_MENU_PAD_LAYOUT_DESC] = "Automatisch wählt Nintendo für Controller im Nintendo-Stil und sonst Xbox.\nNintendo nutzt die rechte Taste für A.\n"
+                                "Xbox nutzt die untere Taste für A.\nXbox-Symbole nutzt die Nintendo-Positionen mit Xbox-Beschriftung.\n\n"
+                                "Für umbelegte Tasten zeigt das Spiel weiter das ursprüngliche Symbol.",
+    [UI_MENU_PAD_LAYOUT_AUTO] = "Automatisch", [UI_MENU_PAD_LAYOUT_NINTENDO] = "Nintendo (A rechts)",
+    [UI_MENU_PAD_LAYOUT_XBOX] = "Xbox (A unten)", [UI_MENU_PAD_LAYOUT_XBOX_PROMPTS] = "Xbox-Symbole (A rechts)",
+    [UI_MENU_PAD_LAYOUT_IN_USE] = "aktiv: %s",
+    [UI_MENU_PAD_LAYOUT_PROMPTS_MISSING] = "Symboldateien fehlen: Setup erneut ausführen",
+    [UI_MENU_PAD_LAYOUT_PROMPTS_RESTART] = "Symbole ändern sich nach einem Neustart",
+    [UI_MENU_STICK_DEADZONE] = "Stick-Totzone",
+    [UI_MENU_STICK_DEADZONE_DESC] = "Wie weit ein Stick bewegt werden muss, bevor er zählt. Erhöhe sie, wenn Figur oder Kamera driften.",
+    [UI_MENU_MOUSE_CAMERA] = "Direkte Mauskamera",
+    [UI_MENU_MOUSE_CAMERA_DESC] = "Mausbewegungen drehen die Folgekamera direkt. Andere Kameramodi deuten Mausbewegungen als Stick-Eingabe.",
+    [UI_MENU_MOUSE_SENS] = "Mausempfindlichkeit",
+    [UI_MENU_MOUSE_SENS_DESC] = "Wie weit sich die Kamera dreht, wenn du die Maus bewegst.",
+
+    [UI_BINDS_HELP_KEYS] = "Klicke auf eine Belegung oder drücke Enter, dann eine Taste oder Maustaste. Entf oder Rücktaste löscht sie. "
+                           "Eine bereits belegte Taste wandert zur neuen Aktion.",
+    [UI_BINDS_HELP_PAD] = "Drücke A auf einer Belegung, dann eine Controllertaste. X löscht sie. Bereits belegte Tasten "
+                          "werden getauscht. Der linke Stick bewegt, der rechte steuert die Kamera.",
+    [UI_BINDS_COL_KEY1] = "Primär", [UI_BINDS_COL_KEY2] = "Sekundär",
+    [UI_BINDS_GROUP_BUTTONS] = "Tasten", [UI_BINDS_GROUP_MOVE] = "Bewegung", [UI_BINDS_GROUP_CAMERA] = "Kamera",
+    [UI_BINDS_PRESS_KEY] = "Drücke eine Taste oder Maustaste für %s",
+    [UI_BINDS_PRESS_PAD] = "Drücke eine Controllertaste für %s",
+    [UI_BINDS_CANCEL_HINT] = "Esc bricht ab, oder warte %d s",
+    [UI_BINDS_TAKEN] = "%s wurde von %s übernommen", [UI_BINDS_SWAPPED] = "%s mit %s getauscht",
+    [UI_BINDS_RESET] = "Alle Belegungen zurücksetzen",
+    [UI_BINDS_RESET_DESC] = "Zurück zu den Standardtasten und Controllertasten. Die Tastenbelegung oben gilt dann wieder: umbelegte Controllertasten bleiben bis zu diesem Zurücksetzen, wo du sie hingelegt hast.",
+    [UI_BIND_A] = "A", [UI_BIND_B] = "B", [UI_BIND_X] = "X", [UI_BIND_Y] = "Y",
+    [UI_BIND_LCLICK] = "Linker Stick drücken", [UI_BIND_RCLICK] = "Rechter Stick drücken", [UI_BIND_L] = "L",
+    [UI_BIND_R] = "R", [UI_BIND_ZL] = "ZL", [UI_BIND_ZR] = "ZR", [UI_BIND_PLUS] = "Plus", [UI_BIND_MINUS] = "Minus",
+    [UI_BIND_LEFT] = "Steuerkreuz links", [UI_BIND_UP] = "Steuerkreuz oben", [UI_BIND_RIGHT] = "Steuerkreuz rechts",
+    [UI_BIND_DOWN] = "Steuerkreuz unten",
+    [UI_BIND_LSTICK_LEFT] = "Nach links", [UI_BIND_LSTICK_UP] = "Nach vorn", [UI_BIND_LSTICK_RIGHT] = "Nach rechts",
+    [UI_BIND_LSTICK_DOWN] = "Zurück",
+    [UI_BIND_RSTICK_LEFT] = "Kamera links", [UI_BIND_RSTICK_UP] = "Kamera hoch", [UI_BIND_RSTICK_RIGHT] = "Kamera rechts",
+    [UI_BIND_RSTICK_DOWN] = "Kamera runter",
+    [UI_BIND_DESC_A] = "Interagieren, aufheben, reden.", [UI_BIND_DESC_B] = "Rennen, abbrechen, zurück.",
+    [UI_BIND_DESC_X] = "Springen.", [UI_BIND_DESC_Y] = "Angreifen.", [UI_BIND_DESC_LCLICK] = "Ducken.",
+    [UI_BIND_DESC_RCLICK] = "Ego-Perspektive.", [UI_BIND_DESC_L] = "Fähigkeiten.",
+    [UI_BIND_DESC_R] = "Waffe werfen.", [UI_BIND_DESC_ZL] = "Schild, anvisieren.", [UI_BIND_DESC_ZR] = "Bogen.",
+    [UI_BIND_DESC_PLUS] = "Menü, Inventar.", [UI_BIND_DESC_MINUS] = "Karte.",
+    [UI_BIND_DESC_DPAD] = "Schnellauswahl.",
+    [UI_BIND_DESC_MOVE] = "Bewegt Link wie der linke Stick. Der linke Stick des Controllers funktioniert immer auch.",
+    [UI_BIND_DESC_CAMERA] = "Dreht die Kamera wie der rechte Stick. Die Maus und der rechte Stick des Controllers "
+                            "funktionieren immer auch.",
+    [UI_DKB_BIND_A] = "Springen. Bestätigt in Menüs.",
+    [UI_DKB_BIND_B] = "Nach unten schlagen. Zurück in Menüs.",
+    [UI_DKB_BIND_X] = "Nach oben schlagen.",
+    [UI_DKB_BIND_Y] = "Nach vorn schlagen oder den gehaltenen Brocken schwingen.",
+    [UI_DKB_BIND_LCLICK] = "Die Aktion, die in der Steuerung des Spiels auf den linken Stick gelegt ist.",
+    [UI_DKB_BIND_RCLICK] = "Die Aktion, die in der Steuerung des Spiels auf den rechten Stick gelegt ist.",
+    [UI_DKB_BIND_L] = "Halten zum Pfeifen: zeigt den Weg zum Ziel.",
+    [UI_DKB_BIND_R] = "Handklatscher: sammelt Gegenstände in der Nähe ein und deckt Verstecktes auf.",
+    [UI_DKB_BIND_ZL] = "Vorwärtsrolle oder mit einem Brocken surfen.",
+    [UI_DKB_BIND_ZR] = "Einen Geländebrocken greifen oder den gehaltenen werfen.",
+    [UI_DKB_BIND_PLUS] = "Pausenmenü öffnen.",
+    [UI_DKB_BIND_MINUS] = "Karte öffnen.",
+    [UI_DKB_BIND_LEFT] = "Zur vorigen freigeschalteten Verwandlung wechseln.",
+    [UI_DKB_BIND_UP] = "Fähigkeitenmenü öffnen.",
+    [UI_DKB_BIND_RIGHT] = "Zur nächsten freigeschalteten Verwandlung wechseln.",
+    [UI_DKB_BIND_DOWN] = "Fotomodus öffnen, wenn verfügbar.",
+    [UI_DKB_BIND_MOVE] = "Die Spielfigur in diese Richtung bewegen.",
+    [UI_DKB_BIND_CAMERA] = "Die Kamera in diese Richtung drehen.",
+    [UI_KEY_SPACE] = "Leertaste", [UI_KEY_TAB] = "Tab", [UI_KEY_LSHIFT] = "Umschalt links", [UI_KEY_LCTRL] = "Strg links",
+    [UI_KEY_UP] = "Pfeil hoch", [UI_KEY_DOWN] = "Pfeil runter", [UI_KEY_LEFT] = "Pfeil links",
+    [UI_KEY_RIGHT] = "Pfeil rechts",
+    [UI_KEY_MOUSE_L] = "Linke Maustaste", [UI_KEY_MOUSE_R] = "Rechte Maustaste", [UI_KEY_MOUSE_M] = "Mittlere Maustaste",
+    [UI_KEY_MOUSE_X1] = "Maustaste 4", [UI_KEY_MOUSE_X2] = "Maustaste 5",
+    [UI_KEY_ENTER] = "Enter", [UI_KEY_BACKSPACE] = "Rücktaste", [UI_KEY_RSHIFT] = "Umschalt rechts",
+    [UI_KEY_RCTRL] = "Strg rechts", [UI_KEY_LALT] = "Alt", [UI_KEY_CAPSLOCK] = "Feststelltaste", [UI_KEY_INSERT] = "Einfg",
+    [UI_KEY_DELETE] = "Entf", [UI_KEY_HOME] = "Pos1", [UI_KEY_END] = "Ende", [UI_KEY_PAGEUP] = "Bild hoch",
+    [UI_KEY_PAGEDOWN] = "Bild runter", [UI_KEY_NUM_FMT] = "Num %s",
+    [UI_PAD_SOUTH] = "Untere Taste", [UI_PAD_EAST] = "Rechte Taste", [UI_PAD_WEST] = "Linke Taste",
+    [UI_PAD_NORTH] = "Obere Taste", [UI_PAD_LSTICK] = "Linker Stick", [UI_PAD_RSTICK] = "Rechter Stick",
+    [UI_PAD_L] = "Linke Schultertaste", [UI_PAD_R] = "Rechte Schultertaste", [UI_PAD_START] = "Start", [UI_PAD_BACK] = "Zurück",
+    [UI_PAD_DPAD_LEFT] = "Steuerkreuz links", [UI_PAD_DPAD_UP] = "Steuerkreuz oben", [UI_PAD_DPAD_RIGHT] = "Steuerkreuz rechts",
+    [UI_PAD_DPAD_DOWN] = "Steuerkreuz unten", [UI_PAD_ZL] = "Linker Trigger", [UI_PAD_ZR] = "Rechter Trigger",
+    [UI_PAD_LPADDLE1] = "Linke Rücktaste", [UI_PAD_RPADDLE1] = "Rechte Rücktaste",
+    [UI_PAD_LPADDLE2] = "Linke Rücktaste 2", [UI_PAD_RPADDLE2] = "Rechte Rücktaste 2",
+    [UI_PAD_CROSS] = "Kreuz", [UI_PAD_CIRCLE] = "Kreis", [UI_PAD_SQUARE] = "Quadrat", [UI_PAD_TRIANGLE] = "Dreieck",
+
+    [UI_MENU_MENU_LANG] = "Menüsprache", [UI_MENU_MENU_LANG_DESC] = "Legt die Sprache des Einstellungsmenüs und der Leistungsanzeige fest. "
+                             "Systemsprache nutzt Deutsch oder Russisch, wenn dein System so eingestellt ist, sonst Englisch.",
+    [UI_MENU_MENU_LANG_AUTO] = "Systemsprache",
+    [UI_MENU_THEME] = "Menüdesign", [UI_MENU_THEME_DK] = "Donkey Kong", [UI_MENU_THEME_CLASSIC] = "Klassisch",
+    [UI_MENU_THEME_DESC] = "Wähle das Donkey-Kong-Design oder das klassische Grün-Gold-Design.",
+
+    [UI_MENU_ADV_WARNING] = "Diese Einstellungen sind zum Testen und zur Fehlersuche. Ändere sie nur, wenn du weißt, warum.",
+    [UI_MENU_GROUP_SCHED] = "Ablaufsteuerung", [UI_MENU_GROUP_SHADERS] = "Shader und Pipelines",
+    [UI_MENU_GROUP_TEXMEM] = "Texturen und Speicher", [UI_MENU_GROUP_FIXES] = "Render-Korrekturen",
+    [UI_MENU_GROUP_VULKAN] = "Vulkan", [UI_MENU_GROUP_DIAG] = "Diagnose",
+    [UI_MENU_ASYNC_PREEMPT] = "Vorrang auf virtuellen Kernen",
+    [UI_MENU_ASYNC_PREEMPT_DESC] = "Ein Spiel-Thread darf einen anderen auf demselben virtuellen Kern unterbrechen.",
+    [UI_MENU_PREEMPT_OFF] = "Aus", [UI_MENU_PREEMPT_ON] = "An", [UI_MENU_PREEMPT_INHERIT] = "Nur Prioritätsvererbung",
+    [UI_MENU_REPLAY_ASYNC] = "GPU-Bildvorbereitung auf eigenem Thread",
+    [UI_MENU_REPLAY_ASYNC_DESC] = "Bereitet Bilder für die GPU auf einem eigenen Thread statt dem Spiel-Thread vor. Bis zu ein Bild mehr Verzögerung.",
+    [UI_MENU_REPLAY_THREADS] = "Threads für große Render-Durchgänge",
+    [UI_MENU_REPLAY_THREADS_DESC] = "Zeichnet die Draws großer Render-Durchgänge auf so vielen Threads gleichzeitig auf. Automatisch nutzt 4 Threads ab 8 logischen Prozessoren (nicht auf AMD); Aus nutzt einen Thread. Schneller in vollen Gegenden auf CPUs mit vielen Kernen.",
+    [UI_MENU_TIMER_1MS] = "1-ms-Windows-Timer",
+    [UI_MENU_TIMER_1MS_DESC] = "Erhöht die Auflösung des System-Timers auf 1 ms für gleichmäßigere Bildzeiten.",
+    [UI_MENU_PIPE_WAIT] = "Umgang mit wartenden Draws",
+    [UI_MENU_PIPE_WAIT_DESC] = "Standard behält die aktuelle Ablaufsteuerung mit einem reservierten Worker für wartende Draws; Alt (Draw) nutzt die frühere.",
+    [UI_MENU_PIPE_WAIT_DEFAULT] = "Standard", [UI_MENU_PIPE_WAIT_DRAW] = "Alt (Draw)",
+    [UI_MENU_PIPE_SKIP] = "Übersprungene Draws beim Pipeline-Bau",
+    [UI_MENU_PIPE_SKIP_DESC] = "Welche Draws verworfen werden, statt auf ihre Pipeline zu warten.",
+    [UI_MENU_PIPE_SKIP_STRICT] = "Streng", [UI_MENU_PIPE_SKIP_ANY] = "Alle",
+    [UI_MENU_PIPE_SKIP_FULLSCREEN] = "Vollbild-Durchgänge",
+    [UI_MENU_LIB_PREBUILD] = "Stufenbibliotheken vorab bauen",
+    [UI_MENU_LIB_PREBUILD_DESC] = "Baut Shader-Stufenbibliotheken vorab im Hintergrund.",
+    [UI_MENU_LIB_PREBUILD_THREADS] = "Threads für den Vorab-Bau",
+    [UI_MENU_LIB_PREBUILD_THREADS_DESC] = "Threads für den Vorab-Bau; Automatisch wählt eine Zahl passend zur CPU.",
+    [UI_MENU_PIPE_PREBUILD] = "Pipelines vorab bauen",
+    [UI_MENU_PIPE_PREBUILD_DESC] = "Baut bekannte Pipelines vorab.",
+    [UI_MENU_PREWARM_XLATE] = "Übersetzer vorwärmen",
+    [UI_MENU_PREWARM_XLATE_DESC] = "Threads, die beim Start bekannte Shader übersetzen; Automatisch nimmt die Hälfte der CPU-Threads, höchstens 16.",
+    [UI_MENU_GPL] = "Graphics Pipeline Library",
+    [UI_MENU_GPL_DESC] = "Nutzt die Vulkan-Erweiterung für Pipeline-Bibliotheken; schalte sie aus, wenn dein Treiber damit Probleme hat.",
+    [UI_MENU_ASTC] = "ASTC-Texturdekodierung", [UI_MENU_ASTC_DESC] = "Wo komprimierte ASTC-Texturen dekodiert werden.",
+    [UI_MENU_ASTC_AUTO] = "Automatisch", [UI_MENU_ASTC_GPU] = "GPU-Shader", [UI_MENU_ASTC_NATIVE] = "Nativ",
+    [UI_MENU_ASTC_CPU] = "CPU",
+    [UI_MENU_MEMORY] = "GPU-Speichermodus", [UI_MENU_MEMORY_DESC] = "Wie der Spielspeicher mit der GPU geteilt wird.",
+    [UI_MENU_MEMORY_AUTO] = "Automatisch", [UI_MENU_MEMORY_IMPORT] = "Importieren", [UI_MENU_MEMORY_MIRROR] = "Spiegeln",
+    [UI_MENU_MEMORY_VERIFY] = "Prüfen",
+    [UI_MENU_TEX_ALIAS] = "Textur-Aliasing", [UI_MENU_TEX_ALIAS_DESC] = "Eine neue Textur im Speicher einer lebenden Textur beginnt mit deren Inhalt statt leer.",
+    [UI_MENU_TEX_VRAM_PRESSURE] = "Grenze für Texturspeicher", [UI_MENU_TEX_VRAM_PRESSURE_DESC] = "Prozent des Grafikspeichers, ab dem vom Spiel freigegebene Texturen verworfen werden (bei Bedarf kommen sie vom Speicher zurück). 0 behält sie.",
+    [UI_MENU_ASTC_BC] = "ASTC zu BC3 komprimieren", [UI_MENU_ASTC_BC_DESC] = "Mit dem GPU-Dekoder: kodiert dekodierte ASTC-Texturen zu BC3 um, ein Viertel des Grafikspeichers. Für GPUs mit 4 GB oder weniger; Texturen wirken etwas blockiger.",
+    [UI_MENU_LOD_GUARD] = "LOD-Schutz", [UI_MENU_LOD_GUARD_DESC] = "Verhindert, dass Objekte für ein Bild an der falschen Stelle aufblitzen oder die Ferne flach wirkt, indem auf das Spiel gewartet wird, bis es die Detailstufen-Daten fertig geschrieben hat.",
+    [UI_MENU_FIX_C0] = "Konstantenpuffer-Korrektur",
+    [UI_MENU_FIX_C0_DESC] = "Füllt die vom Treiber reservierte Konstantenbank c0 (Speichergrößen, Dispatch-Größe, Punktgröße, Basisinstanz), statt Nullen zu lesen.",
+    [UI_MENU_FIX_ZERO] = "Neuen GPU-Speicher nullen",
+    [UI_MENU_FIX_ZERO_DESC] = "Neue GPU-Speicherpools beginnen mit Nullen, wie Switch-Speicher.",
+    [UI_MENU_LIST_RESTART] = "Primitive Restart bei Listen",
+    [UI_MENU_LIST_RESTART_DESC] = "Wendet den Primitive Restart des Spiels auf Dreieckslisten an, wie die Switch. Ohne ihn werden die Restart-Indizes als Eckpunkte gezeichnet: lange gestreckte Dreiecke, etwa auf der Karte. Braucht eine GPU mit primitiveTopologyListRestart.",
+    [UI_MENU_BIND_SKIP] = "Wiederholte Bindungen überspringen",
+    [UI_MENU_BIND_SKIP_DESC] = "Optimierung: überspringt Bindungen, die sich nicht geändert haben.",
+    [UI_MENU_SHADER_MEMO] = "Shader-Merker", [UI_MENU_SHADER_MEMO_DESC] = "Optimierung: merkt sich Shader-Suchen.",
+    [UI_MENU_PIPE_MEMO] = "Pipeline-Merker", [UI_MENU_PIPE_MEMO_DESC] = "Optimierung: nutzt die Pipeline des vorigen Draws erneut, wenn sich sein Zustand wiederholt.",
+    [UI_MENU_TEX_MEMO] = "Texturbindungs-Merker", [UI_MENU_TEX_MEMO_DESC] = "Optimierung: merkt sich Textur-Deskriptoren zwischen Draws.",
+    [UI_MENU_DESC_TEMPLATE] = "Deskriptor-Vorlagen",
+    [UI_MENU_DESC_TEMPLATE_DESC] = "Optimierung: aktualisiert Deskriptoren gebündelt.",
+    [UI_MENU_PUSH_SKIP] = "Wiederholte Push-Konstanten überspringen",
+    [UI_MENU_PUSH_SKIP_DESC] = "Optimierung: überspringt Push-Konstanten, die sich nicht geändert haben.",
+    [UI_MENU_SPLIT_DRAWS] = "Frühe GPU-Übergabe",
+    [UI_MENU_SPLIT_DRAWS_DESC] = "Übergibt GPU-Arbeit alle N Draws zwischen Durchgängen in Teilen, damit die GPU früher anfängt; 0 schaltet es aus.",
+    [UI_MENU_VK_VALIDATION] = "Validierungsschicht",
+    [UI_MENU_VK_VALIDATION_DESC] = "Prüft jeden Vulkan-Aufruf und verlangsamt das Spiel stark.",
+    [UI_MENU_VK_VALIDATION_MISSING] = "Die Validierungsschicht ist nicht installiert.",
+    [UI_MENU_VK_DYN_VERTEX] = "Dynamischer Vertex-Zustand",
+    [UI_MENU_VK_DYN_VERTEX_DESC] = "Erzwingt dynamische Vertex-Eingabe an oder aus; der Standard hängt von der GPU ab.",
+    [UI_MENU_VK_DYN_A2C] = "Dynamisches Alpha-to-Coverage",
+    [UI_MENU_VK_DYN_A2C_DESC] = "Erzwingt dynamisches Alpha-to-Coverage an oder aus. Standard: aus beim AMD-Treiber für RDNA 2 und "
+                                "älter, der Figuren damit schwarz zeichnet, sonst an.",
+    [UI_MENU_VK_SUBGROUP_PIN] = "Subgroup-Größe festlegen", [UI_MENU_VK_SUBGROUP_PIN_DESC] = "Legt die Shader-Subgroup-Größe fest.",
+    [UI_MENU_TRACE] = "Leistungsprotokoll", [UI_MENU_TRACE_DESC] = "Schreibt Bildzeiten in eine Datei.",
+    [UI_MENU_FLIGHT] = "Flugschreiber",
+    [UI_MENU_FLIGHT_DESC] = "Behält einen kurzen Verlauf und speichert ihn, wenn ein Bild hängt.",
+    [UI_MENU_FLIGHT_SPIKE_MS] = "Hänger-Schwelle (ms)",
+    [UI_MENU_FLIGHT_SPIKE_MS_DESC] = "Bildzeit, die als Hänger zählt.",
+    [UI_MENU_INPUT_RECORD] = "Eingaben aufzeichnen",
+    [UI_MENU_INPUT_RECORD_DESC] = "Schreibt deine Eingaben für Fehlerberichte in eine Datei.",
+    [UI_MENU_OPEN_LOG] = "Protokollordner öffnen", [UI_MENU_OPEN_LOG_DESC] = "Zeigt den Ordner mit den Protokolldateien.",
+    [UI_MENU_COPY_INFO] = "Systeminfo kopieren",
+    [UI_MENU_COPY_INFO_DESC] = "Kopiert GPU, Treiber, CPU, RAM und geänderte Einstellungen in die Zwischenablage.",
+    [UI_MENU_COPY_INFO_DONE] = "Kopiert", [UI_MENU_ACTION_FAILED] = "hat nicht geklappt",
+    [UI_MENU_RESET] = "Alle Einstellungen zurücksetzen", [UI_MENU_RESET_DESC] = "Gilt für alle Reiter.",
+    [UI_MENU_RESET_CONFIRM] = "Alle Einstellungen auf Standard zurücksetzen?", [UI_MENU_RESET_YES] = "Zurücksetzen",
+    [UI_MENU_RESET_NO] = "Abbrechen",
+
+    [UI_MENU_OV_FPS] = "%.0f FPS", [UI_MENU_OV_FRAME_MS] = "%.1f ms", [UI_MENU_OV_GAME_PCT] = "Spiel %.0f%%",
+    [UI_MENU_OV_MAX_MS] = "max. %.1f ms",
+    [UI_MENU_OV_GPU] = "GPU", [UI_MENU_OV_CPU] = "CPU", [UI_MENU_OV_RAM] = "RAM", [UI_MENU_OV_VRAM] = "VRAM",
+    [UI_MENU_OV_TEMP] = "Temperatur", [UI_MENU_OV_POWER] = "Leistung", [UI_MENU_OV_CLOCK] = "Takt",
+    [UI_MENU_OV_NONE] = "-",
+    [UI_MENU_OV_REPLAY] = "GPU-Bildvorbereitung", [UI_MENU_OV_GPU_TIME] = "GPU-Last pro Bild",
+    [UI_MENU_OV_PIPE_WAIT] = "Pipeline-Wartezeiten",
+    [UI_MENU_OV_SHADER_WAIT] = "Shader-Wartezeiten", [UI_MENU_OV_TEX_UPLOADS] = "Textur-Uploads",
+    [UI_MENU_OV_FMT_PCT] = "%.0f%%", [UI_MENU_OV_FMT_TEMP] = "%.0f °C", [UI_MENU_OV_FMT_POWER] = "%.0f W",
+    [UI_MENU_OV_FMT_MHZ] = "%.0f MHz", [UI_MENU_OV_FMT_GB] = "%.1f GB", [UI_MENU_OV_FMT_GB_OF] = "/ %.1f GB",
+    [UI_MENU_OV_GAME_GB] = "Spiel %.1f GB", [UI_MENU_OV_FMT_MS] = "%.2f ms", [UI_MENU_OV_PER_FRAME] = "%.1f pro Bild",
+    [UI_MENU_OV_WINDOW] = "Fenster", [UI_MENU_OV_OUTPUT] = "Spielbild", [UI_MENU_OV_SCENE] = "3D-Szene",
+    [UI_MENU_OV_SCALING] = "Skalierung", [UI_MENU_OV_LIMIT] = "Bildlimit", [UI_MENU_OV_PRESENT] = "Bildausgabe",
+    [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
+    [UI_MENU_OV_FMT_UPSCALE] = "%ux%u -> %ux%u",
+    [UI_MENU_OV_NO_UPSCALER] = "kein Upscaler",
+    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, Schärfe %d%%", [UI_MENU_OV_SCALE_NONE] = "keine (1:1)",
+    [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
+};
+
 #define SWKBD_ONLY(name, ...) static const char *const name[UI_TEXT_COUNT] = {SWKBD(__VA_ARGS__)}
 SWKBD_ONLY(text_ja, "文字入力", "名前を入力してください", "ウマ", "OK", "キャンセル", "コントローラー: A = OK、B = キャンセル");
 SWKBD_ONLY(text_fr, "Saisie de texte", "Entrez un nom", "Cheval", "OK", "Annuler", "Manette : A = OK, B = Annuler");
-SWKBD_ONLY(text_de, "Texteingabe", "Gib einen Namen ein", "Pferd", "OK", "Abbrechen", "Controller: A = OK, B = Abbrechen");
 SWKBD_ONLY(text_it, "Inserimento testo", "Inserisci un nome", "Cavallo", "OK", "Annulla", "Controller: A = OK, B = Annulla");
 SWKBD_ONLY(text_es, "Introducir texto", "Introduce un nombre", "Caballo", "Aceptar", "Cancelar",
            "Mando: A = Aceptar, B = Cancelar");
@@ -766,14 +1101,15 @@ const char *ui_text_in(const char *lang, UiTextId id) {
 
 const char *ui_text(UiTextId id) { return ui_text_in(ui_text_lang(ov_language()), id); }
 
-// The menu language, re-read when cfg_version changes. TOTK_MENU_LANG "ru" or "en"; anything else (unset included)
-// follows the system UI language: Russian for "ru", "ru-RU", ..., else English.
+// The menu language, re-read when cfg_version changes. TOTK_MENU_LANG "en", "ru" or "de"; anything else (unset
+// included) follows the system UI language: Russian for "ru", "ru-RU", ..., German for "de", "de-DE", ..., else English.
 static const char *resolve_menu_lang(void) {
     const char *v = cfg_value("TOTK_MENU_LANG");
-    if (v && !strcmp(v, "ru")) return "ru";
-    if (v && !strcmp(v, "en")) return "en";
+    if (v && (!strcmp(v, "ru") || !strcmp(v, "en") || !strcmp(v, "de"))) return v;
     const char *sys = plat_ui_language();
-    return sys && (!strcmp(sys, "ru") || !strncmp(sys, "ru-", 3)) ? "ru" : "en";
+    if (sys && (!strcmp(sys, "ru") || !strncmp(sys, "ru-", 3))) return "ru";
+    if (sys && (!strcmp(sys, "de") || !strncmp(sys, "de-", 3))) return "de";
+    return "en";
 }
 
 const char *menu_text(UiTextId id) {

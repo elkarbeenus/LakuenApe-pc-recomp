@@ -18,7 +18,10 @@ only see in this fork belong in this fork's issues.
    Desktop Mode. No system packages are needed.
 3. Pick your `.nup` file or ExeFS and RomFS folders and an install folder with plenty of free space. **When done** on the
    build's page can put the computer in standby or shut it down after the build.
-4. Start the game from the install folder, or add it to Steam as a non-Steam game.
+4. Press **Play**. From then on the AppImage opens on the game: **Play** starts it, and when a newer release is out it asks
+   first whether to update or to play the current version.
+5. For Steam (Gaming Mode), add the AppImage as a non-Steam game with the launch option `--play`: it starts the game at
+   once and shows a window only to ask about a newer release.
 
 Requirements: x86-64 with AVX2, Linux 6.7 or later (SteamOS 3.8 qualifies), a Vulkan 1.3 driver, 16 GB of RAM.
 
@@ -48,6 +51,13 @@ updates carry over.
   an environment switch keeps the normal priority. (`installer/`, lower_priority)
 - **The desktop's own file chooser** (kdialog on SteamOS/KDE, else zenity), with Tk's as the fallback.
   (`installer/guilogic.py`)
-- **Update notice** for this fork's releases instead of upstream's. (`installer/update.py`)
+- **The setup as the launcher:** after an install it remembers the folder; started again it opens on the game with
+  **Play** and asks about a newer release of this fork (update now or play the current version). An update downloads the
+  release's AppImage next to the running one, checks it against `SHA256SUMS.txt` and updates the install with it.
+  `--play` starts the game without the window, for Steam; the window waits hidden while the game runs, so Steam counts
+  it as running. (`installer/launch.py`, `installer/gui.py`)
+- **German** in the setup window and the settings menu, picked by the system language or chosen by hand (the setup's
+  DE button, the menu's Settings language). The setup's texts no longer name the game. (`installer/text/de.json`,
+  `runtime/ui_text.c`)
 - **Name:** window titles, the settings menu's banner, the setup window and menu entry, and the AppImage are named
   LaküenApeRecomp (`runtime/port_name.h`).
