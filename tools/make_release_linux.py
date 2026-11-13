@@ -32,7 +32,8 @@ Donkey Kong Bananza (--game dkb, docs/installer.md "Bananza AppImage"):
 
     python tools/make_release_linux.py --game dkb --appimage
 
-builds DKB-Setup-<version>-x86_64.AppImage beside build/release/DKB-Setup-linux, needing no game files at all: as in
+builds LakueApeRecomp-<version>-x86_64.AppImage (the fork's name, NAMES) beside build/release/DKB-Setup-linux, needing
+no game files at all: as in
 the Windows dkb folder (tools/make_release.py --game dkb), runtime/ carries every runtime source and the installer
 compiles the whole runtime on the player's machine (installer/bananza.py, build_game.py --full-build), so there is no
 libtotkrt.a, no hactool and no --prove. Without a runtime library to trace, the sysroot files come from preprocessing
@@ -119,7 +120,8 @@ DKB_SYSROOT_LIBS = ['libvulkan.so', 'libSDL3.so', 'libopus.a', 'libvpx.a']
 DKB_GEN_STUBS = ['layout.h', 'patches.h', 'romfs_config.h']
 NAMES = {'totk': dict(app='totk-setup', title='TotK Recomp Setup',
                       comment='Builds Tears of the Kingdom for this PC from your own game files'),
-         'dkb': dict(app='dkb-setup', title='DKB Recomp Setup',
+         # the fork's name (runtime/port_name.h); the AppImage's file name spells it in ASCII
+         'dkb': dict(app='lakueape-setup', title='LaküeApeRecomp Setup', file='LakueApeRecomp',
                      comment='Builds Donkey Kong Bananza for this PC from your own game files')}
 
 
@@ -759,7 +761,7 @@ def main():
                                              'build/release/DKB-Setup-linux')
     ap.add_argument('--appimage', type=Path, nargs='?', const=True,
                     help='also pack the folder as this AppImage; a bare --appimage means '
-                         'DKB-Setup-<version>-x86_64.AppImage beside the folder (dkb)')
+                         'LakueApeRecomp-<version>-x86_64.AppImage beside the folder (dkb)')
     ap.add_argument('--prove', action='store_true', help='only run the compile-and-probe check on an existing folder')
     args = ap.parse_args()
     mr.GAME = args.game
@@ -771,7 +773,7 @@ def main():
     if args.appimage is True:
         if mr.GAME == 'totk':
             ap.error('--appimage needs a path for totk')
-        args.appimage = out.parent / f'DKB-Setup-{mr.version()}-x86_64.AppImage'
+        args.appimage = out.parent / f'{NAMES["dkb"]["file"]}-{mr.version()}-x86_64.AppImage'
     if args.prove:
         if mr.GAME == 'dkb':
             sys.exit('--prove needs libtotkrt.a, which the dkb folder does not carry (it compiles the runtime at install)')

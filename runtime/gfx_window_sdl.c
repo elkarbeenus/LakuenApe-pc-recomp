@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "port_name.h"
 #if defined(__APPLE__)
 #include <pthread.h>   // pthread_main_np: SDL's video calls belong on the process's main thread
 #endif
@@ -320,7 +321,7 @@ static void open_window(void *arg) {
     (void)arg;
     int w, h;
     gfx_cfg_window_size(&w, &h);
-    g_win = SDL_CreateWindow("DKB Recomp", w, h, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    g_win = SDL_CreateWindow(PORT_NAME, w, h, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!g_win) {
         rt_log("gfx: SDL_CreateWindow failed (%s)", SDL_GetError());
         return;

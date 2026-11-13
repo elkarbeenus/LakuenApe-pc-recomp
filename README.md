@@ -7,6 +7,46 @@
 [![Discussions](https://img.shields.io/github/discussions/Lucas-blip-png/dkb-pc-recomp)](https://github.com/Lucas-blip-png/dkb-pc-recomp/discussions)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support%20the%20work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/lucasblippng)
 
+> [!NOTE]
+> **LaküeApeRecomp** is a personal fork of [Lucas-blip-png/dkb-pc-recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp),
+> tuned for Linux and SteamOS on a desktop PC (RX 6600 XT), the Steam Deck and the Legion Go S. It is not the official
+> project and is not run by its developers; all of the recompilation work is theirs. Problems you only see in this fork
+> belong in this fork's issues.
+
+## About this fork
+
+| | |
+|---|---|
+| Upstream | [Lucas-blip-png/dkb-pc-recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp), `bananza` |
+| Fork branch | `linux-appimage` (one branch and one build for every device) |
+| Output | `LakueApeRecomp-<version>-x86_64.AppImage`, published as a release on every push by `.github/workflows/fork-appimage-release.yml` |
+| Versions | upstream's `VERSION` plus the build number: `v0.3.0.2` |
+
+Each change is a separate commit on top of upstream, so it can be read, reverted or sent upstream on its own.
+
+- **Linux AppImage.** The setup with its own Python, LLVM 23 and the Steam Runtime sniper sysroot: no system packages,
+  so SteamOS's read-only system is no obstacle. It builds the game from your `.nup` or ExeFS and RomFS folders.
+  (`tools/make_release_linux.py --game dkb`, docs/installer.md "Bananza AppImage")
+- **Device profiles, recognised at every start** (Linux): the Steam Deck (firmware or APU), the Legion Go S (firmware or
+  Ryzen Z2 Go) and a small PC (an AMD card of 8 GB or less, or 16 GB of RAM or less). A profile only sets defaults for
+  the keys `dkb.ini` does not set, so your own settings and the menu's always win; `device_profile = desktop` turns it
+  off, and `dkb.log` names the profile and why. The values are in `totk.ini.example` ([display], device_profile).
+  (`runtime/cfg.c`, `tests/device_profile_test.py`)
+- **When done:** the build's page can put the computer in standby or shut it down when the build ends (a minute's
+  countdown with **Don't do it** first; never after Cancel), for a build overnight. (`installer/power.py`,
+  `installer/gui.py`)
+- **The build at low priority** on Linux (nice 10, the lowest best-effort disk priority): alone it still gets the whole
+  machine, and whatever you do meanwhile comes first. `DKB_NICE=0` keeps the normal priority. (`installer/bananza.py`)
+- **The desktop's own file chooser** (kdialog on SteamOS/KDE, else zenity), which follows the dark theme;
+  `DKB_TK_DIALOGS=1` keeps Tk's. (`installer/guilogic.py` native_pick)
+- **Update notice** for this fork's releases instead of upstream's, whose builds lack the fork's changes.
+  (`installer/update.py`)
+- **Name:** window titles, the settings menu's banner, the setup window and menu entry, and the AppImage are named
+  LaküeApeRecomp (`runtime/port_name.h`). Folders, files and the save location stay upstream's (`dkb`, `dkb.ini`,
+  `profile/`), so settings and saves carry over.
+
+---
+
 **DKB Recomp** is a static recompilation of *Donkey Kong Bananza* (Nintendo Switch 2, 2025) into a native Windows
 x86-64 application with a Vulkan renderer. There is no emulator at run time: the game's ARM64 code is translated to C
 ahead of time and compiled into one executable, and its graphics calls are answered by a host implementation of
