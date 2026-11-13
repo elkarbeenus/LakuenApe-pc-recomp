@@ -1,10 +1,10 @@
-**LaküeApeRecomp** is a personal fork of [DKB Recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp) for Linux and SteamOS: one AppImage that builds *Donkey Kong Bananza* from your own dump on a desktop PC, the Steam Deck and the Legion Go S. It is not the official project; all of the recompilation work is Lucas-blip-png's and the DKB Recomp contributors'.
+**LaküenApeRecomp** is a personal fork of [DKB Recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp) for Linux and SteamOS: one AppImage that builds *Donkey Kong Bananza* from your own dump on a desktop PC, the Steam Deck and the Legion Go S. It is not the official project; all of the recompilation work is Lucas-blip-png's and the DKB Recomp contributors'.
 
 **The package holds no game data.**
 
 ### Use it
 
-1. Download `LakueApeRecomp-<version>-x86_64.AppImage`, make it executable (`chmod +x`, or Properties > Executable) and start it; on a Steam Deck or a SteamOS PC from Desktop Mode. No system packages are needed.
+1. Download `LakuenApeRecomp-<version>-x86_64.AppImage`, make it executable (`chmod +x`, or Properties > Executable) and start it; on a Steam Deck or a SteamOS PC from Desktop Mode. No system packages are needed.
 2. Pick your `.nup` file (1.0.0, or with the 3.2.0 update inside) or the ExeFS and RomFS folders, and an install folder with plenty of free space. **When done** on the build's page can put the computer in standby or shut it down after the build (a minute's countdown with **Don't do it** first).
 3. Start `dkb` in the install folder, or add it to Steam as a non-Steam game.
 

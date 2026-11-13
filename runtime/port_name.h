@@ -2,5 +2,5 @@
 // location keep the dkb names (dkb, dkb.ini, profile/), so settings and saves carry over. PORT_NAME is UTF-8;
 // PORT_NAME_W is the same name for the Win32 window title.
 #pragma once
-#define PORT_NAME "Lak\xc3\xbc" "eApeRecomp"
-#define PORT_NAME_W L"Lakü" L"eApeRecomp"
+#define PORT_NAME "Lak\xc3\xbc" "enApeRecomp"
+#define PORT_NAME_W L"Lak\u00fc" L"enApeRecomp"

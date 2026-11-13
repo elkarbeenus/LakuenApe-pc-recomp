@@ -8,7 +8,7 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support%20the%20work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/lucasblippng)
 
 > [!NOTE]
-> **LaküeApeRecomp** is a personal fork of [Lucas-blip-png/dkb-pc-recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp),
+> **LaküenApeRecomp** is a personal fork of [Lucas-blip-png/dkb-pc-recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp),
 > tuned for Linux and SteamOS on a desktop PC (RX 6600 XT), the Steam Deck and the Legion Go S. It is not the official
 > project and is not run by its developers; all of the recompilation work is theirs. Problems you only see in this fork
 > belong in this fork's issues.
@@ -19,7 +19,7 @@
 |---|---|
 | Upstream | [Lucas-blip-png/dkb-pc-recomp](https://github.com/Lucas-blip-png/dkb-pc-recomp), `bananza` |
 | Fork branch | `linux-appimage` (one branch and one build for every device) |
-| Output | `LakueApeRecomp-<version>-x86_64.AppImage`, published as a release on every push by `.github/workflows/fork-appimage-release.yml` |
+| Output | `LakuenApeRecomp-<version>-x86_64.AppImage`, published as a release on every push by `.github/workflows/fork-appimage-release.yml` |
 | Versions | upstream's `VERSION` plus the build number: `v0.3.0.2` |
 
 Each change is a separate commit on top of upstream, so it can be read, reverted or sent upstream on its own.
@@ -42,7 +42,7 @@ Each change is a separate commit on top of upstream, so it can be read, reverted
 - **Update notice** for this fork's releases instead of upstream's, whose builds lack the fork's changes.
   (`installer/update.py`)
 - **Name:** window titles, the settings menu's banner, the setup window and menu entry, and the AppImage are named
-  LaküeApeRecomp (`runtime/port_name.h`). Folders, files and the save location stay upstream's (`dkb`, `dkb.ini`,
+  LaküenApeRecomp (`runtime/port_name.h`). Folders, files and the save location stay upstream's (`dkb`, `dkb.ini`,
   `profile/`), so settings and saves carry over.
 
 ---

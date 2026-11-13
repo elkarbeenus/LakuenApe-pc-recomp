@@ -1,6 +1,6 @@
-name: LaküeApeRecomp AppImage release
+name: LaküenApeRecomp AppImage release
 
-# This fork's release channel: every push to linux-appimage builds LakueApeRecomp-<version>-x86_64.AppImage
+# This fork's release channel: every push to linux-appimage builds LakuenApeRecomp-<version>-x86_64.AppImage
 # (tools/make_release_linux.py --game dkb, as the appimage job of dkb-release.yml) and publishes it as release
 # v<VERSION>.<run number>, the tag made by GitHub at the pushed commit. The build number goes into the AppImage's VERSION
 # too, so the installer's update check (installer/update.py) tells a player of an older build about the newer one.
@@ -54,8 +54,8 @@ jobs:
       - run: xvfb-run -a python tools/make_release_linux.py --game dkb --appimage
       - uses: actions/upload-artifact@v4
         with:
-          name: LakueApeRecomp-AppImage
-          path: build/release/LakueApeRecomp-*-x86_64.AppImage
+          name: LakuenApeRecomp-AppImage
+          path: build/release/LakuenApeRecomp-*-x86_64.AppImage
           if-no-files-found: error
 
   publish:
@@ -65,13 +65,13 @@ jobs:
       - uses: actions/checkout@v4   # the notes
       - uses: actions/download-artifact@v4
         with:
-          name: LakueApeRecomp-AppImage
+          name: LakuenApeRecomp-AppImage
           path: dist
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.appimage.outputs.version }}
         run: |
-          (cd dist && sha256sum LakueApeRecomp-*.AppImage > SHA256SUMS.txt)
+          (cd dist && sha256sum LakuenApeRecomp-*.AppImage > SHA256SUMS.txt)
           gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title "LaküeApeRecomp $VERSION" --notes-file .github/appimage-release-notes.md
+            --title "LaküenApeRecomp $VERSION" --notes-file .github/appimage-release-notes.md

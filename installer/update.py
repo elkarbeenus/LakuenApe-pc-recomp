@@ -7,9 +7,9 @@ import os
 import re
 import urllib.request
 
-# This fork's releases (LaküeApeRecomp, v<VERSION>.<build>: .github/workflows/fork-appimage-release.yml). Upstream's
+# This fork's releases (LaküenApeRecomp, v<VERSION>.<build>: .github/workflows/fork-appimage-release.yml). Upstream's
 # would offer a build without the fork's changes. GitHub forwards the address when the repository is renamed.
-API = 'https://api.github.com/repos/elkarbeenus/dkb-pc-recomp/releases/latest'
+API = 'https://api.github.com/repos/elkarbeenus/LakuenApe-pc-recomp/releases/latest'
 TIMEOUT = 3
 
 

@@ -2,7 +2,7 @@ name: DKB setup zip
 
 # Builds DKB-Setup-<version>-windows.zip (the portable tools, the source and the installer GUI), the Linux and macOS
 # source packages DKB-Setup-<version>-linux-x86_64.tar.gz and -macos-arm64.zip (tools/make_release_posix.py) and the Linux
-# setup LakueApeRecomp-<version>-x86_64.AppImage (tools/make_release_linux.py --game dkb), with no game data.
+# setup LakuenApeRecomp-<version>-x86_64.AppImage (tools/make_release_linux.py --game dkb), with no game data.
 # A manual run can build the AppImage alone (appimage_only).
 # A manual run or a push to a tag only uploads the zips as workflow artifacts; a tag named v* also publishes them as a
 # GitHub release with the notes of .github/release-notes.md (0.x is experimental, see issue #85).
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       appimage_only:
-        description: "Build only LakueApeRecomp-<version>-x86_64.AppImage"
+        description: "Build only LakuenApeRecomp-<version>-x86_64.AppImage"
         type: boolean
         default: false
   push:
@@ -144,8 +144,8 @@ jobs:
       - run: xvfb-run -a python tools/make_release_linux.py --game dkb --appimage   # also runs check_content over the folder
       - uses: actions/upload-artifact@v4
         with:
-          name: LakueApeRecomp-AppImage
-          path: build/release/LakueApeRecomp-*-x86_64.AppImage
+          name: LakuenApeRecomp-AppImage
+          path: build/release/LakuenApeRecomp-*-x86_64.AppImage
           if-no-files-found: error
 
   publish:

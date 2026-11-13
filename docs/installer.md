@@ -249,7 +249,7 @@ for both AppImages.
 
 ### Bananza AppImage
 
-Preview. `LakueApeRecomp-<version>-x86_64.AppImage` is built by `tools/make_release_linux.py --game dkb --appimage` in the
+Preview. `LakuenApeRecomp-<version>-x86_64.AppImage` is built by `tools/make_release_linux.py --game dkb --appimage` in the
 `appimage` job of `.github/workflows/dkb-release.yml` (a manual run with `appimage_only` builds it alone). The player
 makes it executable and starts it, on a Steam Deck or a SteamOS desktop from Desktop Mode, and picks their .nup file
 (1.0.0, or with the 3.2.0 update inside) or the ExeFS and RomFS folders and an install folder in the same window as on
@@ -257,7 +257,7 @@ Windows. Nothing is installed on the system: SteamOS's read-only root and its up
 
 The folder inside it is the TotK one below with the Windows dkb folder's contents: `runtime/` carries every runtime
 source, `sources.txt` and `totk.png` (the window icon) instead of `libtotkrt.a`, `bin/` has `totk_xlate` (+ `.id`),
-`ninja` and `libSDL3.so.0` but no hactool, the entry is `lakueape-setup.desktop` and `lakueape-setup.png` (the fork's name, LaküeApeRecomp, in the window and the menu entry), and `dkb.ini.example`,
+`ninja` and `libSDL3.so.0` but no hactool, the entry is `lakuenape-setup.desktop` and `lakuenape-setup.png` (the fork's name, LaküenApeRecomp, in the window and the menu entry), and `dkb.ini.example`,
 `LICENSE*` and the licences of Dear ImGui, Roboto and the translator join the notices. The installer compiles the whole
 runtime and the generated code with the folder's clang against `llvm/sysroot` (installer/bananza.py, `build_game.py
 --full-build --sysroot`), and the host check is built against the same sysroot, so a host without C headers works.
