@@ -276,6 +276,15 @@ The window's **When done** box on the build's page (`installer/power.py`) puts t
 when the install ends, after a minute's countdown with **Don't do it**; never after Cancel. On Linux the install lowers
 its own priority first (nice 10, best-effort disk level 7, `bananza.py` lower_priority), which the compilers inherit
 (`DKB_NICE=0` keeps it), and the Browse buttons open kdialog or zenity when there is one (`DKB_TK_DIALOGS=1` keeps Tk's).
+
+After a finished install the window remembers the folder (`installer/launch.py`, `~/.config/lakuenape/setup.json`) and
+shows **Play**. Started again, it opens on that game: **Play** starts it and waits with the window hidden until the game
+ends, so Steam counts a non-Steam game pointing at the AppImage as running. When the fork has a newer release
+(`installer/update.py`), the window asks first: **Update** downloads the release's AppImage beside the running one
+(`$APPIMAGE`, else `~/Applications`), checks it against the release's `SHA256SUMS.txt` and starts it with `--dest <folder>
+--auto-start`, which updates the recorded install; **Play current version** starts the game as it is. `--play` does the
+same without showing the window unless there is a newer release to ask about. The window speaks English, German
+(`installer/text/de.json`) or Russian, by the system language or its language buttons.
 Memory: the install compiles with `--jobs` workers (6 by default, about 0.75 GB each at peak; fewer on a 16 GB machine
 that runs out), and the game's own needs are those of [dkb-testing.md](dkb-testing.md).
 

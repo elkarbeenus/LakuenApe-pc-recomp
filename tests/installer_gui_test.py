@@ -267,8 +267,19 @@ class CatalogTest(unittest.TestCase):
         self.assertIn('36.4', cat('ui.log_space', need='36.4', free='1.0'))
         self.assertEqual(cat('no.such.id'), 'no.such.id')
         self.assertIn('a, b', cat('check.release_incomplete', paths=['a', 'b']))
-        cat.set_language('de')   # unknown language falls back to English
+        cat.set_language('fr')   # unknown language falls back to English
         self.assertEqual(cat.lang, 'en')
+
+    def test_german_has_the_bananza_window_with_the_same_placeholders(self):
+        # German covers what the Bananza window shows; TotK-only ids (keys, NSP and XCI files) fall back to English
+        en, de = Catalog('en').english, Catalog('de').texts
+        self.assertEqual(sorted(set(de) - set(en)), [])
+        holes = [k for k in de if sorted(re.findall(r'\{\w+\}', en[k])) != sorted(re.findall(r'\{\w+\}', de[k]))]
+        self.assertEqual(holes, [])
+        used = [k for k in en if k.startswith(('dkb.', 'ui.when_done', 'ui.power_', 'ui.update_', 'ui.launch_',
+                                                'step.dkb_', 'phase.dkb_', 'lang.'))]
+        used += ['ui.play', 'ui.setup_again', 'ui.play_failed', 'ui.start', 'ui.dest', 'ui.result_ok']
+        self.assertEqual([k for k in used if k not in de], [])
 
     def test_describe_and_amount(self):
         cat = Catalog('en')
@@ -280,7 +291,7 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(describe_event(cat, {'type': 'start'}), '')
 
     def test_windows_language_is_a_known_value(self):
-        self.assertIn(windows_ui_language(), ('en', 'ru'))
+        self.assertIn(windows_ui_language(), ('en', 'de', 'ru'))
 
 
 BREAK_CHILD = 'import time\nprint("ready", flush=True)\ntime.sleep(60)\n'
