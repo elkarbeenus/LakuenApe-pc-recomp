@@ -103,6 +103,11 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_SMAA] = "Anti-aliasing (SMAA)",
     [UI_MENU_SMAA_DESC] = "Smooths jagged edges in the game image and HUD. Higher settings use more GPU time.",
     [UI_MENU_SMAA_LOW] = "Low", [UI_MENU_SMAA_MEDIUM] = "Medium", [UI_MENU_SMAA_HIGH] = "High",
+    [UI_MENU_FRAME_GEN] = "Frame generation",
+    [UI_MENU_FRAME_GEN_DESC] = "Makes a frame between each two of the game's from their motion, so 60 fps are shown as 120. "
+                               "Smoother, not faster, with a little more delay. Needs Mailbox or Immediate and a display "
+                               "of at least twice the frame rate; otherwise no frames are made. Experimental.",
+    [UI_MENU_FRAME_GEN_2X] = "2x",
     [UI_MENU_COLOR] = "Color",
     [UI_MENU_COLOR_PRESET] = "Color profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Game default uses the original colors.\nVivid (OLED) boosts contrast and color.\n"
@@ -446,6 +451,11 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_SMAA_DESC] = "Сглаживает лесенки на готовой картинке после масштабирования под окно и до отрисовки этого "
                           "меню. Интерфейс игры тоже сглаживается. Чем выше качество, тем больше нагрузка на GPU.",
     [UI_MENU_SMAA_LOW] = "Низкое", [UI_MENU_SMAA_MEDIUM] = "Среднее", [UI_MENU_SMAA_HIGH] = "Высокое",
+    [UI_MENU_FRAME_GEN] = "Генерация кадров",
+    [UI_MENU_FRAME_GEN_DESC] = "Создаёт кадр между каждыми двумя кадрами игры по их движению: 60 кадров/с показываются как 120. "
+                               "Плавнее, но не быстрее, с немного большей задержкой. Нужны Mailbox или «Немедленно» и экран "
+                               "с частотой не ниже удвоенной частоты кадров, иначе кадры не создаются. Экспериментально.",
+    [UI_MENU_FRAME_GEN_2X] = "2x",
     [UI_MENU_COLOR] = "Цвет",
     [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
     [UI_MENU_COLOR_PRESET_DESC] = "Задаёт четыре значения ниже. «Яркий»: больше контраста и насыщенности, тени немного "
@@ -797,6 +807,11 @@ static const char *const text_de[UI_TEXT_COUNT] = {
     [UI_MENU_SMAA] = "Kantenglättung (SMAA)",
     [UI_MENU_SMAA_DESC] = "Glättet gezackte Kanten im Spielbild und HUD. Höhere Stufen brauchen mehr GPU-Zeit.",
     [UI_MENU_SMAA_LOW] = "Niedrig", [UI_MENU_SMAA_MEDIUM] = "Mittel", [UI_MENU_SMAA_HIGH] = "Hoch",
+    [UI_MENU_FRAME_GEN] = "Frame Generation",
+    [UI_MENU_FRAME_GEN_DESC] = "Berechnet zwischen je zwei Bildern des Spiels eins aus der Bewegung, so werden 60 FPS als 120 "
+                               "angezeigt. Flüssiger, nicht schneller, mit etwas mehr Verzögerung. Braucht Mailbox oder Sofort und "
+                               "einen Bildschirm mit mindestens der doppelten Bildrate, sonst entstehen keine Zwischenbilder. Experimentell.",
+    [UI_MENU_FRAME_GEN_2X] = "2x",
     [UI_MENU_COLOR] = "Farbe",
     [UI_MENU_COLOR_PRESET] = "Farbprofil",
     [UI_MENU_COLOR_PRESET_DESC] = "Spielstandard nutzt die Originalfarben.\nLebendig (OLED) verstärkt Kontrast und Farben.\n"

@@ -255,24 +255,28 @@ static const ProfileKey DECK[] = {
 };
 // The Lenovo Legion Go S (an 8" 1920x1200 120 Hz screen; Ryzen Z2 Go or Z1 Extreme, 4 or 8 Zen 3+/4 cores and RDNA 2/3
 // with 12 CUs, sharing 16 or 32 GB): the Deck's game resolution and handheld mode, which its GPU carries with room to
-// spare, scaled to the screen by FSR; 40 fps divides its 120 Hz.
+// spare, scaled to the screen by FSR; 40 fps shown as 80 by frame generation (vk_framegen.c), which its 120 Hz takes
+// and which needs mailbox instead of fifo.
 static const ProfileKey LEGION_GO_S[] = {
     {"FULLSCREEN", "1"}, {"WINDOW_SIZE", "1920x1200"}, {"OUTPUT_RES", "1280x800"}, {"RENDER_SCALE", "game"},
-    {"UPSCALER", "fsr"}, {"VK_PRESENT", "fifo"}, {"FPS_LIMIT", "40"}, {"OPERATION_MODE", "handheld"},
+    {"UPSCALER", "fsr"}, {"VK_PRESENT", "mailbox"}, {"FPS_LIMIT", "40"}, {"OPERATION_MODE", "handheld"},
+    {"FRAME_GEN", "2x"},
 };
-// A PC with an AMD graphics card of 8 GB or less (an RX 6600 XT) or with 16 GB of RAM or less: the game at 1920x1080
-// instead of Bananza's 2880x1620. Above 1920x1080 the game's texture heap and memory pool grow with the resolution
-// (totk.ini.example, output_res), which such a card's video memory and such a PC's RAM (the game commits about 14 GB)
-// pay for; FSR scales the picture to the window.
+// The PC this fork is made for (Ryzen 7 5800X3D, RX 6600 XT with 8 GB, 16 GB of RAM) and any other with an AMD card of
+// 8 GB or less or with 16 GB of RAM or less: the game at Full HD, 1920x1080, instead of Bananza's 2880x1620. Above
+// 1920x1080 the game's texture heap and memory pool grow with the resolution (totk.ini.example, output_res), which
+// such a card's video memory and such a PC's RAM (the game commits about 14 GB) pay for. Frame generation 2x shows 60
+// fps as 120 on a display of 120 Hz or more and makes no frames on a slower one (vk_framegen.c), with mailbox, the
+// default present mode, which it needs.
 static const ProfileKey PC_SMALL[] = {
-    {"OUTPUT_RES", "1920x1080"},
+    {"OUTPUT_RES", "1920x1080"}, {"VK_PRESENT", "mailbox"}, {"FRAME_GEN", "2x"},
 };
 enum { PROFILE_NONE, PROFILE_DECK, PROFILE_LEGION_GO_S, PROFILE_PC_SMALL, PROFILE_COUNT };
 static const struct { const char *name, *title; const ProfileKey *keys; size_t n; } PROFILES[PROFILE_COUNT] = {
     [PROFILE_NONE] = {"desktop", "none", NULL, 0},
     [PROFILE_DECK] = {"deck", "Steam Deck", DECK, sizeof DECK / sizeof *DECK},
     [PROFILE_LEGION_GO_S] = {"legion_go_s", "Legion Go S", LEGION_GO_S, sizeof LEGION_GO_S / sizeof *LEGION_GO_S},
-    [PROFILE_PC_SMALL] = {"pc_small", "PC with 8 GB of video memory or 16 GB of RAM", PC_SMALL,
+    [PROFILE_PC_SMALL] = {"pc_small", "PC (8 GB graphics card or 16 GB of RAM)", PC_SMALL,
                           sizeof PC_SMALL / sizeof *PC_SMALL},
 };
 static int profile = -1;   // a PROFILE_ index once decided

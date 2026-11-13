@@ -113,9 +113,10 @@
 #   deck (Steam Deck, by its firmware or APU): fullscreen = 1, window_size = 1280x800, output_res = 1280x800,
 #     render_scale = game, vk_present = fifo, fps_limit = 40, operation_mode = handheld
 #   legion_go_s (Lenovo Legion Go S, by its firmware or the Ryzen Z2 Go): fullscreen = 1, window_size = 1920x1200,
-#     output_res = 1280x800, render_scale = game, upscaler = fsr, vk_present = fifo, fps_limit = 40,
-#     operation_mode = handheld
-#   pc_small (16 GB of RAM or less, or AMD graphics cards of 8 GB or less): output_res = 1920x1080
+#     output_res = 1280x800, render_scale = game, upscaler = fsr, vk_present = mailbox, fps_limit = 40,
+#     operation_mode = handheld, frame_gen = 2x
+#   pc_small (16 GB of RAM or less, or AMD graphics cards of 8 GB or less; this fork's RX 6600 XT PC): output_res =
+#     1920x1080, vk_present = mailbox, frame_gen = 2x
 # device_profile = auto
 # Presentation mode: mailbox (default when the driver offers it, vsync otherwise), fifo (vsync) or immediate.
 # vk_present = mailbox
@@ -167,7 +168,8 @@
 # motion, and shown first, then the game's own frame half a frame later, so a game at 30 fps is shown at 60. The menu
 # overlay is drawn on every shown frame and is never interpolated. No frame is made after a gap of over 100 ms, when the
 # picture's size changes, for the game's own HDR picture, when the display's refresh is below the doubled rate, or unless
-# vk_present is mailbox or immediate. Changes while the game runs take effect at once.
+# vk_present is mailbox or immediate. The settings menu has it under Graphics. The legion_go_s and pc_small device
+# profiles turn it on. Changes while the game runs take effect at once.
 # frame_gen = off
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider

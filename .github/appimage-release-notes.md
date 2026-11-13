@@ -10,7 +10,7 @@
 
 ### What the fork adds
 
-- **Device profiles, recognised at every start:** Steam Deck (1280x800, 40 fps, handheld mode), Legion Go S (1280x800 scaled to its 1920x1200 screen, 40 fps, handheld mode), and a PC with an AMD card of 8 GB or less or 16 GB of RAM or less (the game at 1920x1080). Your own settings always win; `device_profile = desktop` in the settings file turns it off.
+- **Device profiles, recognised at every start:** the PC first (an AMD card of 8 GB or less or 16 GB of RAM or less, such as an RX 6600 XT: Full HD 1920x1080 and frame generation 2x, 60 fps shown as 120 on a 120 Hz display), Legion Go S (1280x800 scaled to its 1920x1200 screen, handheld mode, frame generation 2x at 40 fps), Steam Deck (1280x800, 40 fps, handheld mode). Frame generation can be switched off in the settings menu under Graphics. Your own settings always win; `device_profile = desktop` in the settings file turns it off.
 - **The build at low priority**, so the PC stays usable meanwhile.
 - **The desktop's own file chooser** (kdialog on SteamOS/KDE, else zenity).
 - **Launcher with updates:** Play in the setup, and at start a newer release asks whether to update (downloaded and checked automatically) or to play the current version.

@@ -40,8 +40,11 @@ updates carry over.
 
 - **Linux AppImage.** The setup with its own Python, LLVM 23 and the Steam Runtime sniper sysroot: no system packages,
   so SteamOS's read-only system is no obstacle. (`tools/make_release_linux.py`, docs/installer.md)
-- **Device profiles, recognised at every start** (Linux): the Steam Deck (firmware or APU), the Legion Go S (firmware or
-  Ryzen Z2 Go) and a small PC (an AMD card of 8 GB or less, or 16 GB of RAM or less). A profile only sets defaults for
+- **Device profiles, recognised at every start** (Linux), first of all for this fork's PC (Ryzen 7 5800X3D, RX 6600 XT,
+  16 GB): a PC with an AMD card of 8 GB or less or 16 GB of RAM or less gets Full HD (1920x1080) and frame generation 2x
+  (60 fps shown as 120 on a 120 Hz display or faster); the Legion Go S (firmware or Ryzen Z2 Go) 1280x800 scaled to its
+  screen, handheld mode and frame generation 2x at 40 fps; the Steam Deck (firmware or APU) 1280x800, 40 fps, handheld
+  mode. Frame generation is in the settings menu under Graphics. A profile only sets defaults for
   the keys the settings file does not set, so your own settings and the menu's always win; `device_profile = desktop`
   turns it off, and the log names the profile and why. The values are in `totk.ini.example` ([display],
   device_profile). (`runtime/cfg.c`, `tests/device_profile_test.py`)

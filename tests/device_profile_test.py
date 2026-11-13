@@ -60,7 +60,8 @@ if r.returncode:
     sys.exit(f'compile failed:\n{r.stderr[-4000:]}')
 
 GIB = 1 << 30
-KEYS = ['TOTK_OUTPUT_RES', 'TOTK_WINDOW_SIZE', 'TOTK_OPERATION_MODE', 'TOTK_FPS_LIMIT', 'TOTK_FULLSCREEN']
+KEYS = ['TOTK_OUTPUT_RES', 'TOTK_WINDOW_SIZE', 'TOTK_OPERATION_MODE', 'TOTK_FPS_LIMIT', 'TOTK_FULLSCREEN',
+        'TOTK_FRAME_GEN', 'TOTK_VK_PRESENT']
 
 
 def machine(root, dmi=None, cpu=None, ram_gib=None, cards=()):
@@ -97,20 +98,26 @@ CASES = [
     # name, machine, environment, expected profile, expected values
     ('steam deck lcd', dict(dmi={'board_vendor': 'Valve', 'product_name': 'Jupiter'}, cpu='AMD Custom APU 0405',
                             ram_gib=14.5, cards=[('0x1002', GIB)]), {},
-     'deck', {'TOTK_OUTPUT_RES': '1280x800', 'TOTK_OPERATION_MODE': 'handheld', 'TOTK_FPS_LIMIT': '40'}),
+     'deck', {'TOTK_OUTPUT_RES': '1280x800', 'TOTK_OPERATION_MODE': 'handheld', 'TOTK_FPS_LIMIT': '40',
+              'TOTK_FRAME_GEN': '(unset)', 'TOTK_VK_PRESENT': 'fifo'}),
     ('steam deck oled by cpu only', dict(cpu='AMD Custom APU 0932', ram_gib=14.5), {},
      'deck', {'TOTK_WINDOW_SIZE': '1280x800'}),
     ('steam deck by steam', dict(ram_gib=64), {'SteamDeck': '1'}, 'deck', {'TOTK_FULLSCREEN': '1'}),
     ('legion go s by firmware', dict(dmi={'sys_vendor': 'LENOVO', 'product_name': '83L3',
                                           'product_family': 'Legion Go S 8APU1', 'product_version': 'Legion Go S 8APU1'},
                                      cpu='AMD Ryzen Z1 Extreme', ram_gib=30, cards=[('0x1002', 4 * GIB)]), {},
-     'legion_go_s', {'TOTK_WINDOW_SIZE': '1920x1200', 'TOTK_OUTPUT_RES': '1280x800', 'TOTK_OPERATION_MODE': 'handheld'}),
+     'legion_go_s', {'TOTK_WINDOW_SIZE': '1920x1200', 'TOTK_OUTPUT_RES': '1280x800', 'TOTK_OPERATION_MODE': 'handheld',
+                     'TOTK_FRAME_GEN': '2x', 'TOTK_VK_PRESENT': 'mailbox'}),
     ('legion go s by cpu', dict(cpu='AMD Ryzen Z2 Go w/ Radeon 680M', ram_gib=14), {}, 'legion_go_s', {}),
     ('first legion go is not the s', dict(dmi={'product_family': 'Legion Go 8APU1', 'product_version': 'Legion Go 8APU1'},
                                           cpu='AMD Ryzen Z1 Extreme', ram_gib=16), {},
      'pc_small', {'TOTK_OUTPUT_RES': '1920x1080', 'TOTK_OPERATION_MODE': '(unset)'}),
     ('pc rx 6600 xt', dict(cpu='AMD Ryzen 5 5600X 6-Core Processor', ram_gib=31.3, cards=[('0x1002', 8 * GIB)]), {},
      'pc_small', {'TOTK_OUTPUT_RES': '1920x1080', 'TOTK_WINDOW_SIZE': '(unset)', 'TOTK_FPS_LIMIT': '(unset)'}),
+    ('this fork\'s pc', dict(cpu='AMD Ryzen 7 5800X3D 8-Core Processor', ram_gib=15.5, cards=[('0x1002', 8 * GIB)]), {},
+     'pc_small', {'TOTK_OUTPUT_RES': '1920x1080', 'TOTK_FRAME_GEN': '2x', 'TOTK_VK_PRESENT': 'mailbox'}),
+    ('player turns frame generation off', dict(ram_gib=15.5), {'TOTK_FRAME_GEN': 'off'}, 'pc_small',
+     {'TOTK_FRAME_GEN': 'off', 'TOTK_OUTPUT_RES': '1920x1080'}),
     ('pc with 16 gb ram and a large card', dict(cpu='AMD Ryzen 7 7700X', ram_gib=15.5, cards=[('0x10de', None)]), {},
      'pc_small', {'TOTK_OUTPUT_RES': '1920x1080'}),
     ('pc rx 7900 xtx', dict(cpu='AMD Ryzen 7 7800X3D', ram_gib=31, cards=[('0x1002', 512 << 20), ('0x1002', 24 * GIB)]),
