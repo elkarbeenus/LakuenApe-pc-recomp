@@ -1,3 +1,5 @@
+**Linux AppImage (this fork).** `DKB-Setup-<version>-x86_64.AppImage` builds the game on Linux and SteamOS without any system packages: it carries its own Python, LLVM 23 and the Steam Runtime sniper sysroot. Make it executable and start it (on a Steam Deck or a SteamOS desktop from Desktop Mode), then pick your `.nup` file or ExeFS and RomFS folders and an install folder. It is a preview: the package and its checks are built in CI, a full install from a dump is not verified yet. Details: docs/installer.md, "Bananza AppImage".
+
 DKB Recomp 0.3.0: a static recompilation of *Donkey Kong Bananza* (Switch 2) to a native Windows exe with a Vulkan renderer. It is still experimental (0.x): it plays the tutorial, its cutscene and the first stage on recent NVIDIA cards, and it can crash.
 
 **The packages hold no game data, and no release ever will.** You build the game on your own PC from your own dump of **1.0.0 or the 3.2.0 update**, given as a `.nup` file or as ExeFS and RomFS folders. Other updates are not supported.
