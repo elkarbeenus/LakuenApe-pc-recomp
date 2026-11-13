@@ -1,0 +1,65 @@
+name: AppImage release (fork)
+
+# This fork's release channel for the Linux AppImage: every push to linux-appimage builds
+# DKB-Setup-<version>-x86_64.AppImage (tools/make_release_linux.py --game dkb, as the appimage job of dkb-release.yml)
+# and publishes it as a prerelease tagged v<VERSION>-appimage.<run number>; GitHub creates the tag at the pushed commit.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [linux-appimage]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-appimage-release
+  cancel-in-progress: false
+
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # make_release.py stamps the commit into the version
+      - name: Free disk space   # the LLVM release archive and the sniper SDK need several GB
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v4   # build_xlate.py links totk_xlate with NativeAOT against the sniper sysroot
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install the build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make pkg-config binutils xvfb xauth fonts-dejavu-core
+          python -m pip install pillow
+      - run: python tools/check_content.py
+      - run: xvfb-run -a python tools/make_release_linux.py --game dkb --appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DKB-Setup-AppImage
+          path: build/release/DKB-Setup-*-x86_64.AppImage
+          if-no-files-found: error
+
+  publish:
+    needs: appimage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4   # VERSION and the notes
+      - uses: actions/download-artifact@v4
+        with:
+          name: DKB-Setup-AppImage
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(cat VERSION)-appimage.${GITHUB_RUN_NUMBER}"
+          (cd dist && sha256sum DKB-Setup-*.AppImage > SHA256SUMS.txt)
+          gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "DKB Recomp $(cat VERSION) Linux AppImage (preview ${GITHUB_RUN_NUMBER})" \
+            --notes-file .github/appimage-release-notes.md
