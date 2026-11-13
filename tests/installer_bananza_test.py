@@ -132,6 +132,23 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual(self.host_warnings(commit_limit_gib=30.0), [])
         self.assertEqual(self.host_warnings(), [])
 
+    def host_command(self, layout):
+        host = dict(x86_64_v3=True, loader=True, devices=[{'name': 'gpu', 'api': [1, 3, 0]}])
+        ctx = SimpleNamespace(temp=self.temp, layout=layout, reporter=Reporter(out=io.StringIO()))
+        with patch.object(b, 'run_tool') as tool, patch.object(
+                b.subprocess, 'run', return_value=SimpleNamespace(stdout=json.dumps(host), returncode=0)):
+            b.Check().host(ctx)
+        return list(map(str, tool.call_args[0][2]))
+
+    def test_host_check_builds_against_the_release_sysroot(self):
+        # The Linux AppImage: a SteamOS host has no C headers, so the probe compiles and links against llvm/sysroot
+        from dataclasses import replace
+        sysroot = self.temp / 'llvm' / 'sysroot'
+        command = self.host_command(replace(self.layout, sysroot=sysroot))
+        self.assertIn(f'--sysroot={sysroot}', command)
+        self.assertIn('-fuse-ld=lld', command)
+        self.assertFalse(any(c.startswith('--sysroot') for c in self.host_command(replace(self.layout, sysroot=None))))
+
     def test_shell_special_temp_path_is_flagged(self):
         self.assertEqual(b.unsafe_temp_chars('/home/u/DKB (2)/build'), '()')
         self.assertEqual(b.unsafe_temp_chars('/home/u/DKB Recomp/build-1_x.y'), '')

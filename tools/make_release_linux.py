@@ -27,6 +27,18 @@ Like tools/make_release.py, both need one game version extracted and lifted firs
 
 The folder contains nothing derived from the game: check_content runs over it before the script finishes, then the
 folder's own python runs a check-only installer pass and the window's --selftest.
+
+Donkey Kong Bananza (--game dkb, docs/installer.md "Bananza AppImage"):
+
+    python tools/make_release_linux.py --game dkb --appimage
+
+builds DKB-Setup-<version>-x86_64.AppImage beside build/release/DKB-Setup-linux, needing no game files at all: as in
+the Windows dkb folder (tools/make_release.py --game dkb), runtime/ carries every runtime source and the installer
+compiles the whole runtime on the player's machine (installer/bananza.py, build_game.py --full-build), so there is no
+libtotkrt.a, no hactool and no --prove. Without a runtime library to trace, the sysroot files come from preprocessing
+every runtime source of this OS and hostcheck.c against the sysroot (dkb_sysroot_files), plus the C++ standard library,
+SDL3, Opus and libvpx headers whole and the libraries of the game's link. The AppImage entry starts the same window,
+which takes the .nup file or the ExeFS and RomFS folders.
 """
 import argparse
 import os
@@ -96,6 +108,19 @@ GCC_LIBS = {'libgcc.a', 'libgcc_eh.a', 'libgcc_s.so', 'libstdc++.a', 'libsupc++.
 # The libraries of a release link (build_game.py LINK_LIBS with --deps: Opus, libvpx and zstd static).
 RELEASE_LIBS = ['-lvulkan', '-lSDL3', '-l:libopus.a', '-l:libvpx.a', '-l:libzstd.a', '-l:libstdc++.a', '-lm',
                 '-lpthread', '-ldl']
+# --game dkb: sysroot parts a Bananza install reads that preprocessing the runtime may not name in full. The C++ standard
+# library headers (nvn2_lower.cpp, the Eglantine lowering and Dear ImGui include them under flags of their own) and the
+# headers of the libraries the runtime calls go whole; the libraries are those of RELEASE_LIBS outside glibc and GCC.
+DKB_SYSROOT_DIRS = ['usr/include/c++', 'usr/include/x86_64-linux-gnu/c++', 'usr/include/SDL3', 'usr/include/opus',
+                    'usr/include/vpx']
+DKB_SYSROOT_LIBS = ['libvulkan.so', 'libSDL3.so', 'libopus.a', 'libvpx.a']
+# The generated headers the runtime includes from the lifter's output folder and romfs_config.h from the build folder:
+# empty stand-ins let the preprocessor reach every system header without game files.
+DKB_GEN_STUBS = ['layout.h', 'patches.h', 'romfs_config.h']
+NAMES = {'totk': dict(app='totk-setup', title='TotK Recomp Setup',
+                      comment='Builds Tears of the Kingdom for this PC from your own game files'),
+         'dkb': dict(app='dkb-setup', title='DKB Recomp Setup',
+                     comment='Builds Donkey Kong Bananza for this PC from your own game files')}
 
 
 def run(cmd, **kw):
@@ -190,10 +215,11 @@ def build_bin(out, llvm, sysroot):
     zip_dir = mr.unpack('ninja-linux')
     shutil.copy2(zip_dir / 'ninja', b / 'ninja')
     (b / 'ninja').chmod(0o755)
-    hac = WORK / 'hactool-linux'
-    run([sys.executable, ROOT / 'tools' / 'build_hactool.py', '--src', WORK / 'hactool-src', '--out', hac,
-         '--cc', sysroot_cc(llvm, sysroot)])
-    shutil.copy2(hac / 'hactool', b / 'hactool')
+    if mr.GAME == 'totk':   # Bananza's installer extracts with its own scripts (extract_nup.py, dkb_pack_romfs.py)
+        hac = WORK / 'hactool-linux'
+        run([sys.executable, ROOT / 'tools' / 'build_hactool.py', '--src', WORK / 'hactool-src', '--out', hac,
+             '--cc', sysroot_cc(llvm, sysroot)])
+        shutil.copy2(hac / 'hactool', b / 'hactool')
     xl = WORK / 'xlate-linux'
     run([sys.executable, ROOT / 'tools' / 'build_xlate.py', '--out', xl, '--llvm', llvm, '--sysroot', sysroot])
     shutil.copy2(xl / 'totk_xlate', b / 'totk_xlate')
@@ -219,11 +245,24 @@ def runtime_lib(out, llvm, sysroot):
             shutil.copy2(p, rt / p.relative_to(ROOT / 'runtime'))
     for name in build_game.INSTALL_SIDE:
         shutil.copy2(ROOT / 'runtime' / name, rt / name)
-    from PIL import Image   # Tk loads no .ico off Windows: the window and the AppImage take a PNG
+    window_icon(rt)
+    return build
+
+
+def window_icon(rt):
+    """runtime/totk.png from dkb.ico: Tk loads no .ico off Windows, so the window (installer/gui.py) and the AppImage
+    take a PNG."""
+    from PIL import Image
     with Image.open(ROOT / 'runtime' / 'dkb.ico') as ico:
         ico.size = max(ico.ico.sizes())
         ico.convert('RGBA').save(rt / 'totk.png')
-    return build
+
+
+def runtime_sources_dkb(out):
+    """runtime/ of the Bananza folder: every runtime source and sources.txt, as the Windows dkb folder carries them
+    (make_release.py runtime_lib), and the window icon. The installer compiles them on the player's machine."""
+    mr.runtime_lib(out, None)
+    window_icon(out / 'runtime')
 
 
 def used_sysroot_files(out, llvm, sysroot, rtlib_build):
@@ -254,15 +293,28 @@ def used_sysroot_files(out, llvm, sysroot, rtlib_build):
     if trace.returncode:
         sys.exit(f'sysroot trace link failed:\n{trace.stderr[-3000:]}')
     used.update(line.split('(')[0] for line in trace.stdout.splitlines())
+    return in_sysroot(sysroot, used) | base_sysroot_files(sysroot)
+
+
+def in_sysroot(sysroot, names):
+    """The paths among names (absolute, as .d files and lld --trace print them) that lie in the sysroot: each as read
+    and, through its symlinks, the file itself."""
     root = str(sysroot.resolve())
     files = set()
-    for p in used:
+    for p in names:
         path = Path(p)
         if not path.is_absolute():
             continue
-        for q in (path, path.resolve()):   # the name read and, through symlinks, the file
+        for q in (path, path.resolve()):
             if str(q).startswith(root + '/') and q.exists():
                 files.add(q)
+    return files
+
+
+def base_sysroot_files(sysroot):
+    """The sysroot files every Linux release carries whatever its compiles read: the C library and kernel headers, the
+    C runtime and the GCC pieces clang links."""
+    files = set()
     # The C library and kernel headers whole: which of them a compile reads depends on its flags (at -O1 glibc's inline
     # variants pull in bits/stdio.h and others), and the setup compiles the generated code, hostcheck and the
     # install-side sources with flags of its own
@@ -284,6 +336,55 @@ def used_sysroot_files(out, llvm, sysroot, rtlib_build):
     gcc = next((sysroot / 'usr' / 'lib' / 'gcc' / 'x86_64-linux-gnu').iterdir())
     files.update(p for p in gcc.iterdir() if p.name.startswith('crt') or p.name in GCC_LIBS)
     return files
+
+
+def dkb_sysroot_files(out, llvm, sysroot):
+    """The sysroot files a Bananza install reads, found without game files. The installer compiles every runtime source
+    of this OS (build_game.py runtime_sources) and hostcheck.c with the flags build_game.py gives them; preprocessing
+    each with those flags against the sysroot, the lifter's headers replaced by empty stand-ins (DKB_GEN_STUBS), names
+    the headers (their .d files). The C++ library and the libraries' headers go whole (DKB_SYSROOT_DIRS), and the link
+    reads glibc and GCC (base_sysroot_files) and DKB_SYSROOT_LIBS with the links on the way to their files."""
+    probe = CHECK / 'sysroot-probe-dkb'
+    shutil.rmtree(probe, ignore_errors=True)
+    stubs = probe / 'stubs'
+    stubs.mkdir(parents=True)
+    for name in DKB_GEN_STUBS:
+        (stubs / name).write_text('/* empty stand-in for tools/make_release_linux.py dkb_sysroot_files */\n')
+    rt = out / 'runtime'
+    deps = rt / 'deps' / 'include'
+    build_game.RUNTIME = rt   # runtime_sources() lists the folder's copy, the sources the player compiles
+    sources = [p for p in build_game.runtime_sources() if p.suffix in ('.c', '.cpp')]
+    base = [llvm / 'bin' / 'clang', '--target=x86_64-linux-gnu', f'--sysroot={sysroot}', '-O2', '-march=x86-64-v3',
+            '-fno-strict-aliasing', '-Wno-everything', '-I', rt, '-I', stubs, '-I', deps, '-I', deps / 'vma',
+            '-I', rt / 'third_party' / 'imgui']
+    used, failed = [], []
+    for i, src in enumerate([*sources, ROOT / 'installer' / 'hostcheck.c']):
+        extra = ['-std=c++20', '-I', rt / 'third_party' / 'eglantine'] if src.suffix == '.cpp' else []
+        dep = probe / f'{i}.d'
+        r = subprocess.run([str(c) for c in [*base, *extra, '-E', '-o', os.devnull, '-MD', '-MF', dep, src]],
+                           capture_output=True, text=True)
+        if dep.is_file():
+            used += re.findall(r'\S+', dep.read_text(encoding='utf-8', errors='replace').replace('\\\n', ' '))
+        if r.returncode or not dep.is_file():
+            failed.append((src.name, (r.stderr.strip().splitlines() or ['no depfile'])[-1]))
+    files = in_sysroot(sysroot, used)
+    print(f'sysroot trace: {len(sources) + 1} sources preprocessed, {len(files)} sysroot files named'
+          + (f', {len(failed)} with errors (first: {failed[0][0]}: {failed[0][1]})' if failed else ''))
+    if len(failed) > len(sources) // 2:
+        sys.exit('sysroot trace: most sources did not preprocess against the sysroot:\n'
+                 + '\n'.join(f'  {n}: {e}' for n, e in failed[:20]))
+    for rel in DKB_SYSROOT_DIRS:
+        d = sysroot / rel
+        if not d.is_dir():
+            sys.exit(f'sysroot: {rel} missing from the sniper SDK')
+        files.update(p for p in d.rglob('*') if p.is_file() or p.is_symlink())
+    lib = sysroot / 'usr' / 'lib' / 'x86_64-linux-gnu'
+    for name in DKB_SYSROOT_LIBS:
+        found = sorted(lib.glob(name + '*'))
+        if not found:
+            sys.exit(f'sysroot: no {name} in {lib.relative_to(sysroot)}')
+        files.update(found)
+    return files | base_sysroot_files(sysroot)
 
 
 def link_chain(path):
@@ -404,9 +505,16 @@ def collect_licenses(out, sysroot):
         (WORK / 'zstd' / 'LICENSE', 'zstd-LICENSE.txt'),
         (out / 'python' / 'lib' / f'python{sys_version(out)}' / 'LICENSE.txt', 'python-LICENSE.txt'),
         (ROOT / 'runtime' / 'shaders' / 'ffx' / 'LICENSE.txt', 'FidelityFX-FSR-LICENSE.txt'),
-        (WORK / 'hactool-linux' / 'LICENSE', 'hactool-LICENSE.txt'),
-        (MAIN_ROOT / 'refs' / 'MacNativeGames' / 'LICENSE', 'MacNativeGames-LICENSE.txt'),
     ]
+    if mr.GAME == 'totk':
+        pairs += [(WORK / 'hactool-linux' / 'LICENSE', 'hactool-LICENSE.txt'),
+                  (MAIN_ROOT / 'refs' / 'MacNativeGames' / 'LICENSE', 'MacNativeGames-LICENSE.txt')]
+    else:   # the third-party code the Bananza runtime sources carry (tools/make_release_posix.py LICENSES), and ours
+        pairs += [(ROOT / 'runtime' / 'third_party' / 'imgui' / 'LICENSE.txt', 'imgui-LICENSE.txt'),
+                  (ROOT / 'runtime' / 'ui' / 'fonts' / 'LICENSE-Roboto.txt', 'Roboto-LICENSE.txt'),
+                  (ROOT / 'tools' / 'xlate' / 'LICENSE', 'totk_xlate-LICENSE.txt')]
+        for p in sorted(ROOT.glob('LICENSE*')):
+            shutil.copy2(p, out / p.name)
     for src, name in pairs:
         shutil.copy2(src, lic / name)
     import tarfile   # Debian's libvpx copyright carries no patent grant: the WebM PATENTS text from the pinned source tag
@@ -431,21 +539,22 @@ exec "$HERE/python/bin/python3" -m installer.gui "$@"
 
 DESKTOP = '''[Desktop Entry]
 Type=Application
-Name=TotK Recomp Setup
-Comment=Builds Tears of the Kingdom for this PC from your own game files
+Name={title}
+Comment={comment}
 Exec=AppRun
-Icon=totk-setup
+Icon={app}
 Categories=Game;
 Terminal=false
 '''
 
 
 def build_entry(out):
+    names = NAMES[mr.GAME]
     (out / 'AppRun').write_text(APPRUN, encoding='utf-8')
     (out / 'AppRun').chmod(0o755)
-    (out / 'totk-setup.desktop').write_text(DESKTOP, encoding='utf-8')
-    shutil.copy2(out / 'runtime' / 'totk.png', out / 'totk-setup.png')
-    (out / '.DirIcon').symlink_to('totk-setup.png')
+    (out / f'{names["app"]}.desktop').write_text(DESKTOP.format(**names), encoding='utf-8')
+    shutil.copy2(out / 'runtime' / 'totk.png', out / f'{names["app"]}.png')
+    (out / '.DirIcon').symlink_to(f'{names["app"]}.png')
 
 
 def write_appimage(out, path):
@@ -496,29 +605,116 @@ def check_bundle(out):
     shutil.rmtree(chk, ignore_errors=True)
     py = out / 'python' / 'bin' / 'python3'
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
-    r = subprocess.run([str(py), '-m', 'installer', '--lang', 'en-US', '--dest', str(chk / 'install'), '--temp',
-                        str(chk / 'temp'), '--root', str(out)], cwd='/', env=env, capture_output=True, text=True,
-                       timeout=600)
-    events = [json.loads(line) for line in r.stdout.splitlines() if line.startswith('{')]
-    errors = [e['id'] for e in events if e['type'] == 'error']
-    started = any(e['type'] == 'start' and e.get('release') == (out / 'VERSION').read_text().strip() for e in events)
-    steps = [e['phase'] for e in events if e['type'] == 'progress']
-    if errors != ['check.inputs_needed'] or not started or 'inputs' not in steps:
-        sys.exit(f'bundle check: exit {r.returncode}, errors {errors}, release read {started}\n{r.stdout[-2000:]}\n'
-                 f'{r.stderr[-2000:]}')
-    print(f'bundle check: the installer ran the host check from the folder and stopped at the game files '
-          f'(exit {r.returncode})')
+    if mr.GAME == 'totk':   # the no-input CLI pass is the TotK path; Bananza gets the font and window checks below
+        r = subprocess.run([str(py), '-m', 'installer', '--lang', 'en-US', '--dest', str(chk / 'install'), '--temp',
+                            str(chk / 'temp'), '--root', str(out)], cwd='/', env=env, capture_output=True, text=True,
+                           timeout=600)
+        events = [json.loads(line) for line in r.stdout.splitlines() if line.startswith('{')]
+        errors = [e['id'] for e in events if e['type'] == 'error']
+        started = any(e['type'] == 'start' and e.get('release') == (out / 'VERSION').read_text().strip()
+                      for e in events)
+        steps = [e['phase'] for e in events if e['type'] == 'progress']
+        if errors != ['check.inputs_needed'] or not started or 'inputs' not in steps:
+            sys.exit(f'bundle check: exit {r.returncode}, errors {errors}, release read {started}\n'
+                     f'{r.stdout[-2000:]}\n{r.stderr[-2000:]}')
+        print(f'bundle check: the installer ran the host check from the folder and stopped at the game files '
+              f'(exit {r.returncode})')
+    else:
+        dkb_toolchain_check(out, py, env)
     run([py, '-c', 'import tkinter as tk; from tkinter import font; '
          'root = tk.Tk(); root.withdraw(); '
          'fonts = [font.nametofont("TkDefaultFont"), font.Font(family="DejaVu Sans"), '
          'font.Font(family="DejaVu Sans Mono")]; '
          'missing = [(f.actual("family"), c) for f in fonts for c in "УстановкаЁёЙй" if f.measure(c) <= 0]; '
          'root.destroy(); assert not missing, f"Cyrillic glyphs missing: {missing}"'], cwd='/', env=env)
-    r = subprocess.run([str(py), '-m', 'installer.gui', '--selftest', '--root', str(out)], cwd='/', env=env,
+    r = subprocess.run([str(py), '-m', 'installer.gui', '--selftest', '--root', str(out),
+                        '--game', 'bananza' if mr.GAME == 'dkb' else 'totk'], cwd='/', env=env,
                        capture_output=True, text=True, timeout=300)
     if r.returncode:
         sys.exit(f'bundle check: window selftest exit {r.returncode}\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}')
     print('bundle check: the window built every screen in both languages and closed')
+
+
+LINK_PROBE_C = r'''
+#include <SDL3/SDL.h>
+#include <opus/opus.h>
+#include <vpx/vpx_decoder.h>
+#include <vulkan/vulkan.h>
+#include <zstd.h>
+#include <stdio.h>
+int link_probe_cpp(void);
+int main(void) {
+    printf("%d %s %u %d %p\n", SDL_GetVersion(), vpx_codec_version_str(), ZSTD_versionNumber(), link_probe_cpp(),
+           (void *)vkGetInstanceProcAddr);
+    return opus_decoder_get_size(2) > 0 ? 0 : 1;
+}
+'''
+LINK_PROBE_CPP = r'''
+#include <string>
+#include <vector>
+#include <unordered_map>
+extern "C" int link_probe_cpp(void) {
+    std::unordered_map<std::string, std::vector<int>> m;
+    m["dkb"].push_back(1);
+    return (int)m.size();
+}
+'''
+
+
+def dkb_toolchain_check(out, py, env):
+    """What the Bananza folder can show without game files, with its own clang and the trimmed llvm/sysroot only:
+    hostcheck.c compiles, links and runs as installer/bananza.py builds it; a probe links every library of the game's
+    link (RELEASE_LIBS, the C++ library included); and every runtime source that compiles without the lifter's output
+    compiles (-fsyntax-only), while none of the others stops at a missing sysroot header."""
+    chk = CHECK / 'toolchain'
+    shutil.rmtree(chk, ignore_errors=True)
+    stubs = chk / 'stubs'
+    stubs.mkdir(parents=True)
+    for name in DKB_GEN_STUBS:
+        (stubs / name).write_text('')
+    clang, sysroot, rt = out / 'llvm' / 'bin' / 'clang', out / 'llvm' / 'sysroot', out / 'runtime'
+    deps = rt / 'deps'
+    target = ['--target=x86_64-linux-gnu', f'--sysroot={sysroot}', '-fuse-ld=lld']
+    host = chk / 'hostcheck'
+    run([clang, '-O1', ROOT / 'installer' / 'hostcheck.c', '-o', host, '-I', deps / 'include', *target, '-ldl'])
+    r = subprocess.run([str(host)], capture_output=True, text=True, timeout=120)
+    try:
+        import json
+        report = json.loads(r.stdout)
+    except ValueError:
+        sys.exit(f'toolchain check: hostcheck printed no JSON (exit {r.returncode}):\n{r.stdout[-1000:]}{r.stderr[-1000:]}')
+    print(f'toolchain check: hostcheck built against llvm/sysroot and ran (x86_64_v3 {report.get("x86_64_v3")}, '
+          f'Vulkan loader {report.get("loader")})')
+    (chk / 'probe.c').write_text(LINK_PROBE_C)
+    (chk / 'probe.cpp').write_text(LINK_PROBE_CPP)
+    run([clang, *target, '-O1', '-c', chk / 'probe.c', '-o', chk / 'probe_c.o', '-I', deps / 'include'])
+    run([clang, *target, '-O1', '-std=c++20', '-c', chk / 'probe.cpp', '-o', chk / 'probe_cpp.o'])
+    run([clang, *target, '-no-pie', chk / 'probe_c.o', chk / 'probe_cpp.o', '-L', deps / 'lib', *RELEASE_LIBS,
+         '-o', chk / 'probe'])
+    print('toolchain check: a probe linked Vulkan, SDL3, Opus, libvpx, zstd and libstdc++ from the folder alone')
+    build_game.RUNTIME = rt
+    sources = [p for p in build_game.runtime_sources() if p.suffix in ('.c', '.cpp')]
+    flags = [*target, '-O2', '-march=x86-64-v3', '-fno-strict-aliasing', '-I', rt, '-I', stubs, '-I', deps / 'include',
+             '-I', deps / 'include' / 'vma', '-I', rt / 'third_party' / 'imgui']
+    clean, needs_gen, broken = 0, 0, []
+    for i, src in enumerate(sources):
+        extra = ['-std=c++20', '-I', rt / 'third_party' / 'eglantine'] if src.suffix == '.cpp' else []
+        dep = chk / f'{i}.d'
+        r = subprocess.run([str(c) for c in [clang, *flags, *extra, '-fsyntax-only', '-MD', '-MF', dep, src]],
+                           capture_output=True, text=True, timeout=600)
+        if r.returncode == 0:
+            clean += 1
+            continue
+        if re.search(r"fatal error: '[^']+' file not found", r.stderr):
+            broken.append(f'{src.name}: {re.search(r"fatal error: .*", r.stderr).group(0)}')
+        elif dep.is_file() and str(stubs) in dep.read_text(errors='replace'):
+            needs_gen += 1   # reads the lifter's output, which only an install has
+        else:
+            broken.append(f'{src.name}: {(r.stderr.strip().splitlines() or ["?"])[0]}')
+    if broken:
+        sys.exit('toolchain check: runtime sources fail against the folder\'s sysroot:\n  ' + '\n  '.join(broken[:20]))
+    print(f'toolchain check: {clean} runtime sources compile against llvm/sysroot; {needs_gen} need the lifter\'s '
+          'output and reached it with every system header found')
 
 
 def prove(out):
@@ -556,12 +752,29 @@ def prove(out):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--out', type=Path, required=True, help='release folder (replaced)')
-    ap.add_argument('--appimage', type=Path, help='also pack the folder as this AppImage')
+    ap.add_argument('--game', choices=sorted(mr.GAMES), default='totk',
+                    help='totk (default) or dkb: Donkey Kong Bananza, runtime sources instead of libtotkrt.a, no game '
+                         'files needed')
+    ap.add_argument('--out', type=Path, help='release folder (replaced); required for totk, dkb default '
+                                             'build/release/DKB-Setup-linux')
+    ap.add_argument('--appimage', type=Path, nargs='?', const=True,
+                    help='also pack the folder as this AppImage; a bare --appimage means '
+                         'DKB-Setup-<version>-x86_64.AppImage beside the folder (dkb)')
     ap.add_argument('--prove', action='store_true', help='only run the compile-and-probe check on an existing folder')
     args = ap.parse_args()
+    mr.GAME = args.game
+    if args.out is None:
+        if mr.GAME == 'totk':
+            ap.error('--out is required')
+        args.out = MAIN_ROOT / 'build' / 'release' / 'DKB-Setup-linux'
     out = args.out.resolve()
+    if args.appimage is True:
+        if mr.GAME == 'totk':
+            ap.error('--appimage needs a path for totk')
+        args.appimage = out.parent / f'DKB-Setup-{mr.version()}-x86_64.AppImage'
     if args.prove:
+        if mr.GAME == 'dkb':
+            sys.exit('--prove needs libtotkrt.a, which the dkb folder does not carry (it compiles the runtime at install)')
         prove(out)
         return
     if out.exists():
@@ -571,8 +784,12 @@ def main():
     sysroot = full_sysroot()
     build_deps(out, llvm, sysroot)
     build_bin(out, llvm, sysroot)
-    rtlib = runtime_lib(out, llvm, sysroot)
-    build_sysroot(out, sysroot, used_sysroot_files(out, llvm, sysroot, rtlib))
+    if mr.GAME == 'dkb':
+        runtime_sources_dkb(out)
+        build_sysroot(out, sysroot, dkb_sysroot_files(out, llvm, sysroot))
+    else:
+        rtlib = runtime_lib(out, llvm, sysroot)
+        build_sysroot(out, sysroot, used_sysroot_files(out, llvm, sysroot, rtlib))
     build_python(out, llvm, sysroot)
     mr.build_sources(out)
     collect_licenses(out, sysroot)

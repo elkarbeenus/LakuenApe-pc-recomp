@@ -243,7 +243,37 @@ at install); the lifted tree is `dkb100` instead of `v121`/`v143`.
 
 ## Linux release
 
-TotK only. The AppImage described here is TotK's; Bananza has the source packages below.
+Bananza has two Linux setups: the AppImage (next section), which carries its own compiler, Python and sysroot and needs
+no system packages, and the source packages after it. The TotK AppImage the rest of this chapter describes is the model
+for both AppImages.
+
+### Bananza AppImage
+
+Preview. `DKB-Setup-<version>-x86_64.AppImage` is built by `tools/make_release_linux.py --game dkb --appimage` in the
+`appimage` job of `.github/workflows/dkb-release.yml` (a manual run with `appimage_only` builds it alone). The player
+makes it executable and starts it, on a Steam Deck or a SteamOS desktop from Desktop Mode, and picks their .nup file
+(1.0.0, or with the 3.2.0 update inside) or the ExeFS and RomFS folders and an install folder in the same window as on
+Windows. Nothing is installed on the system: SteamOS's read-only root and its updates are no obstacle.
+
+The folder inside it is the TotK one below with the Windows dkb folder's contents: `runtime/` carries every runtime
+source, `sources.txt` and `totk.png` (the window icon) instead of `libtotkrt.a`, `bin/` has `totk_xlate` (+ `.id`),
+`ninja` and `libSDL3.so.0` but no hactool, the entry is `dkb-setup.desktop` and `dkb-setup.png`, and `dkb.ini.example`,
+`LICENSE*` and the licences of Dear ImGui, Roboto and the translator join the notices. The installer compiles the whole
+runtime and the generated code with the folder's clang against `llvm/sysroot` (installer/bananza.py, `build_game.py
+--full-build --sysroot`), and the host check is built against the same sysroot, so a host without C headers works.
+
+Building it needs no game files. With no runtime library to trace, `dkb_sysroot_files` preprocesses every runtime source
+of this OS and `installer/hostcheck.c` against the sniper sysroot with the flags `build_game.py` gives them (empty
+stand-ins for the lifter's `layout.h` and `patches.h` and for `romfs_config.h`) and keeps the sysroot files their `.d`
+files name; the C++ standard library, SDL3, Opus and libvpx headers go whole, and so do the libraries of the release link
+with the links on the way to their files. `dkb_toolchain_check` then uses only the finished folder: it builds and runs
+hostcheck as the installer does, links a probe against Vulkan, SDL3, Opus, libvpx, zstd and libstdc++, and compiles
+(`-fsyntax-only`) every runtime source that does not read the lifter's output; the others must reach it without a
+missing system header. The window selftest and the font check follow, as for TotK. `--prove` does not apply.
+
+Status: the folder and its checks are built in CI; a full install from a dump with the AppImage is not verified yet.
+Memory: the install compiles with `--jobs` workers (6 by default, about 0.75 GB each at peak; fewer on a 16 GB machine
+that runs out), and the game's own needs are those of [dkb-testing.md](dkb-testing.md).
 
 ### Bananza Linux and macOS packages
 
