@@ -128,6 +128,8 @@
  "ui.power_stop": "Don't do it",
  "ui.power_stopped": "Stopped: the computer stays on.",
  "ui.power_failed": "The system did not accept the request; the computer stays on.",
+ "ui.update_none": "No newer release available: you have the latest version ({version}).",
+ "ui.update_check_failed": "Could not check for a newer release (offline?). You can play the current version.",
  "ui.play": "Play",
  "ui.setup_again": "Setup / repair",
  "ui.launch_title": "Ready to play",

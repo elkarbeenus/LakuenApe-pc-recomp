@@ -675,15 +675,20 @@ class App:
         return f
 
     def check_update_launch(self):
-        info = update.newer_release_info(self.layout.release)
+        latest = update.fetch_latest()   # None offline
+        result = 'offline' if latest is None else \
+            update.newer_release_info(self.layout.release, fetch=lambda: latest) or 'none'
         try:
-            self.root.after(0, self.on_update_found, info)
+            self.root.after(0, self.on_update_found, result)
         except RuntimeError:   # Tk is already gone
             pass
 
     def on_update_found(self, info):
-        """A newer release asks before anything starts; without one, --play starts the game at once."""
-        if not info:
+        """A newer release asks before anything starts; without one ('none', or 'offline' when the check could not
+        reach GitHub) the screen says so, and --play starts the game at once."""
+        if not isinstance(info, dict):
+            self.bind_text(self.launch_note, 'text', 'ui.update_check_failed' if info == 'offline' else 'ui.update_none',
+                           version=self.layout.release)
             if self.play_now:
                 self.play()
             return
