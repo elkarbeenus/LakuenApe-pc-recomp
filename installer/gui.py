@@ -38,7 +38,7 @@ GLYPH = {PENDING: '\u25cb', RUNNING: '\u25b6', DONE: '\u2714', SKIPPED: '\u2013'
 BARK, FRAME, BORDER, FIELD, HOVER = '#2a1a0e', '#3b2614', '#6b4a2a', '#1d1109', '#4d331b'
 BANANA, CREAM, MUTED = '#f6c52b', '#f3e9d2', '#b8a888'
 RED, RED_TEXT, GREEN, GREEN_TEXT = '#c8281e', '#ff8a7a', '#3f8f3a', '#6fcf68'
-BRAND = 'LAKÜENAPERECOMP  ·  DONKEY KONG BANANZA'   # the fork's name (runtime/port_name.h)
+BRAND = 'LAKÜENAPERECOMP  ·  PC RECOMP'   # the fork's name (runtime/port_name.h)
 COLOR = {PENDING: MUTED, RUNNING: BANANA, DONE: GREEN_TEXT, SKIPPED: MUTED, FAILED: RED_TEXT}
 PAD = 14
 

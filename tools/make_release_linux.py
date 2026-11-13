@@ -122,7 +122,7 @@ NAMES = {'totk': dict(app='totk-setup', title='TotK Recomp Setup',
                       comment='Builds Tears of the Kingdom for this PC from your own game files'),
          # the fork's name (runtime/port_name.h); the AppImage's file name spells it in ASCII
          'dkb': dict(app='lakuenape-setup', title='LaküenApeRecomp Setup', file='LakuenApeRecomp',
-                     comment='Builds Donkey Kong Bananza for this PC from your own game files')}
+                     comment='Builds the game for this PC from your own game files')}
 
 
 def run(cmd, **kw):
