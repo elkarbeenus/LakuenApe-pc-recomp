@@ -107,9 +107,15 @@
 # vk_subgroup_pin = 1
 
 [display]
-# Device profile: auto (the Steam Deck when this is one), desktop or deck. On a Steam Deck the keys this file does not
-# set default to fullscreen = 1, window_size = 1280x800, output_res = 1280x800, render_scale = game, vk_present = fifo
-# and fps_limit = 40 (starting points, not measured yet). Read at start.
+# Device profile: auto (what the machine is, recognised at every start; Linux), desktop (none), deck, legion_go_s or
+# pc_small. A profile only changes the keys this file does not set, so your own lines and the menu's always win; dkb.log
+# names the profile and why ("cfg: device profile"). Starting points, not measured yet. Read at start.
+#   deck (Steam Deck, by its firmware or APU): fullscreen = 1, window_size = 1280x800, output_res = 1280x800,
+#     render_scale = game, vk_present = fifo, fps_limit = 40, operation_mode = handheld
+#   legion_go_s (Lenovo Legion Go S, by its firmware or the Ryzen Z2 Go): fullscreen = 1, window_size = 1920x1200,
+#     output_res = 1280x800, render_scale = game, upscaler = fsr, vk_present = fifo, fps_limit = 40,
+#     operation_mode = handheld
+#   pc_small (16 GB of RAM or less, or AMD graphics cards of 8 GB or less): output_res = 1920x1080
 # device_profile = auto
 # Presentation mode: mailbox (default when the driver offers it, vsync otherwise), fifo (vsync) or immediate.
 # vk_present = mailbox

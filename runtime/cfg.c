@@ -122,7 +122,7 @@ static const CfgMeta metas[] = {
     // the highlight rewrite (spirv_hdr_shoulder.c; 0 keeps the game's curve, about 1.36x paper white). Read at start.
     {"HDR_NATIVE", "0", "0|1", RESTART}, {"HDR_TRACE", "0", "0|1", RESTART},
     {"HDR_SHOULDER", "1", "0|1", RESTART},
-    {"DEVICE_PROFILE", "auto", "auto|desktop|deck", RESTART},
+    {"DEVICE_PROFILE", "auto", "auto|desktop|deck|legion_go_s|pc_small", RESTART},
     // Game
     {"FPS_LIMIT", "60", "30|40|45|60|90|120|144|display|unlimited", LIVE}, {"FPS60", "1", "0|1", LIVE},
     {"REALTIME", "1", "0|1", RESTART}, {"CLOTH_REALTIME", "1", "0|1", RESTART},
@@ -239,22 +239,56 @@ int cfg_load(const char *path) {
 }
 
 // ---- device profiles: defaults for a known machine, below the environment and totk.ini and above the table, so any
-// key the player sets wins and resetting a key in the menu returns to the profile's value. TOTK_DEVICE_PROFILE = auto
-// (default: the Steam Deck when the firmware says so), desktop (none) or deck.
-//
+// key the player sets wins and resetting a key in the menu returns to the profile's value. The machine is recognised at
+// every start. TOTK_DEVICE_PROFILE = auto (the default: what the machine is), desktop (none), deck, legion_go_s or
+// pc_small. Starting points to replace with measured ones (docs/tester-guide.md).
+typedef struct { const char *key, *value; } ProfileKey;
+
 // The Steam Deck (LCD Jupiter, OLED Galileo; 1280x800, 16:10, 4 Zen 2 cores, RDNA 2 with 8 CUs sharing 16 GB): the game
 // at the screen's 1280x800 with its own 5/6 scene (the aspect patch gives the camera its 16:10, resolution.c, and the
-// romfs-patches-1280x800 overlay the HUD's);
-// fullscreen and vsync, as gamescope composes Game Mode; 40 fps, which divides 40 Hz (and 120 Hz on the OLED).
-// Starting points to replace with measured ones (docs/tester-guide.md, Steam Deck).
-static const struct { const char *key, *value; } DECK[] = {
+// romfs-patches-1280x800 overlay the HUD's); fullscreen and vsync, as gamescope composes Game Mode; 40 fps, which
+// divides 40 Hz (and 120 Hz on the OLED); and the console's handheld mode, whose lighter settings the game made for a
+// portable's GPU and power budget (ov_system.c reports it to the game).
+static const ProfileKey DECK[] = {
     {"FULLSCREEN", "1"}, {"WINDOW_SIZE", "1280x800"}, {"OUTPUT_RES", "1280x800"}, {"RENDER_SCALE", "game"},
-    {"VK_PRESENT", "fifo"}, {"FPS_LIMIT", "40"},
+    {"VK_PRESENT", "fifo"}, {"FPS_LIMIT", "40"}, {"OPERATION_MODE", "handheld"},
 };
-static int profile = -1;   // 0 none, 1 Steam Deck
+// The Lenovo Legion Go S (an 8" 1920x1200 120 Hz screen; Ryzen Z2 Go or Z1 Extreme, 4 or 8 Zen 3+/4 cores and RDNA 2/3
+// with 12 CUs, sharing 16 or 32 GB): the Deck's game resolution and handheld mode, which its GPU carries with room to
+// spare, scaled to the screen by FSR; 40 fps divides its 120 Hz.
+static const ProfileKey LEGION_GO_S[] = {
+    {"FULLSCREEN", "1"}, {"WINDOW_SIZE", "1920x1200"}, {"OUTPUT_RES", "1280x800"}, {"RENDER_SCALE", "game"},
+    {"UPSCALER", "fsr"}, {"VK_PRESENT", "fifo"}, {"FPS_LIMIT", "40"}, {"OPERATION_MODE", "handheld"},
+};
+// A PC with an AMD graphics card of 8 GB or less (an RX 6600 XT) or with 16 GB of RAM or less: the game at 1920x1080
+// instead of Bananza's 2880x1620. Above 1920x1080 the game's texture heap and memory pool grow with the resolution
+// (totk.ini.example, output_res), which such a card's video memory and such a PC's RAM (the game commits about 14 GB)
+// pay for; FSR scales the picture to the window.
+static const ProfileKey PC_SMALL[] = {
+    {"OUTPUT_RES", "1920x1080"},
+};
+enum { PROFILE_NONE, PROFILE_DECK, PROFILE_LEGION_GO_S, PROFILE_PC_SMALL, PROFILE_COUNT };
+static const struct { const char *name, *title; const ProfileKey *keys; size_t n; } PROFILES[PROFILE_COUNT] = {
+    [PROFILE_NONE] = {"desktop", "none", NULL, 0},
+    [PROFILE_DECK] = {"deck", "Steam Deck", DECK, sizeof DECK / sizeof *DECK},
+    [PROFILE_LEGION_GO_S] = {"legion_go_s", "Legion Go S", LEGION_GO_S, sizeof LEGION_GO_S / sizeof *LEGION_GO_S},
+    [PROFILE_PC_SMALL] = {"pc_small", "PC with 8 GB of video memory or 16 GB of RAM", PC_SMALL,
+                          sizeof PC_SMALL / sizeof *PC_SMALL},
+};
+static int profile = -1;   // a PROFILE_ index once decided
+static char profile_why[160];   // what recognised the machine, for the log
+
+// The machine's files below DKB_DEVICE_SYSROOT when that is set (tests/device_profile_test.py gives each case a folder
+// of its own), else the real /sys and /proc.
+static FILE *open_sys(const char *path) {
+    const char *root = getenv("DKB_DEVICE_SYSROOT");
+    char full[512];
+    snprintf(full, sizeof full, "%s%s", root ? root : "", path);
+    return fopen(full, "r");
+}
 
 static int read_line(const char *path, char *out, size_t n) {
-    FILE *f = fopen(path, "r");
+    FILE *f = open_sys(path);
     if (!f) return 0;
     int ok = fgets(out, (int)n, f) != NULL;
     fclose(f);
@@ -262,14 +296,95 @@ static int read_line(const char *path, char *out, size_t n) {
     return ok;
 }
 
-// The Steam Deck: Valve's board, product Jupiter or Galileo (/sys/class/dmi/id); SteamDeck=1, which Steam sets on it.
-static int on_steam_deck(void) {
+static int has_ci(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    for (; *hay; hay++)
+        if (!strncasecmp(hay, needle, n)) return 1;
+    return 0;
+}
+
+// /proc/cpuinfo's first "model name" line (every core repeats it).
+static int cpu_name(char *out, size_t n) {
+    FILE *f = open_sys("/proc/cpuinfo");
+    if (!f) return 0;
+    char line[256];
+    int found = 0;
+    while (!found && fgets(line, sizeof line, f))
+        if (!strncmp(line, "model name", 10) && strchr(line, ':')) {
+            const char *v = strchr(line, ':') + 1;
+            while (*v == ' ' || *v == '\t') v++;
+            snprintf(out, n, "%s", v);
+            out[strcspn(out, "\r\n")] = 0;
+            found = 1;
+        }
+    fclose(f);
+    return found;
+}
+
+// The Steam Deck: SteamDeck=1, which Steam sets on it; Valve's board with product Jupiter or Galileo
+// (/sys/class/dmi/id); or its APU, AMD Custom APU 0405 (LCD) or 0932 (OLED).
+static int on_steam_deck(const char *cpu) {
     const char *env = getenv("SteamDeck");
-    if (env && !strcmp(env, "1")) return 1;
+    if (env && !strcmp(env, "1")) return snprintf(profile_why, sizeof profile_why, "SteamDeck=1"), 1;
     char vendor[64], product[64];
-    return read_line("/sys/class/dmi/id/board_vendor", vendor, sizeof vendor) && !strcmp(vendor, "Valve") &&
-           read_line("/sys/class/dmi/id/product_name", product, sizeof product) &&
-           (!strcmp(product, "Jupiter") || !strcmp(product, "Galileo"));
+    if ((read_line("/sys/class/dmi/id/board_vendor", vendor, sizeof vendor) ||
+         read_line("/sys/class/dmi/id/sys_vendor", vendor, sizeof vendor)) && !strncmp(vendor, "Valve", 5) &&
+        read_line("/sys/class/dmi/id/product_name", product, sizeof product) &&
+        (!strcmp(product, "Jupiter") || !strcmp(product, "Galileo")))
+        return snprintf(profile_why, sizeof profile_why, "firmware product %s", product), 1;
+    if (has_ci(cpu, "Custom APU 0405") || has_ci(cpu, "Custom APU 0932"))
+        return snprintf(profile_why, sizeof profile_why, "CPU %s", cpu), 1;
+    return 0;
+}
+
+// The Legion Go S: Lenovo names it in the firmware's product family or version ("Legion Go S 8APU1"; the product name
+// is a model number such as 83L3), and the Ryzen Z2 Go is made for it. The first Legion Go ("Legion Go 8APU1") is not
+// matched.
+static int on_legion_go_s(const char *cpu) {
+    static const char *const fields[] = {"product_family", "product_version", "product_name"};
+    char value[96], path[64];
+    for (size_t i = 0; i < sizeof fields / sizeof *fields; i++) {
+        snprintf(path, sizeof path, "/sys/class/dmi/id/%s", fields[i]);
+        if (read_line(path, value, sizeof value) && has_ci(value, "Legion Go S"))
+            return snprintf(profile_why, sizeof profile_why, "firmware %s %s", fields[i], value), 1;
+    }
+    if (has_ci(cpu, "Ryzen Z2 Go")) return snprintf(profile_why, sizeof profile_why, "CPU %s", cpu), 1;
+    return 0;
+}
+
+// A small PC: 16.5 GiB of RAM or less (/proc/meminfo), or graphics cards that are all AMD's with 8.5 GiB of video
+// memory or less on the largest (amdgpu's mem_info_vram_total). Another vendor's card reports no size there, so a PC
+// with one is judged by its RAM alone.
+static int on_small_pc(void) {
+    char line[128];
+    FILE *f = open_sys("/proc/meminfo");
+    unsigned long long ram_kb = 0;
+    if (f) {
+        while (fgets(line, sizeof line, f))
+            if (sscanf(line, "MemTotal: %llu kB", &ram_kb) == 1) break;
+        fclose(f);
+    }
+    if (ram_kb && ram_kb <= 17301504ull)   // 16.5 GiB
+        return snprintf(profile_why, sizeof profile_why, "%.1f GiB of RAM", ram_kb / 1048576.0), 1;
+    unsigned long long vram_max = 0;
+    int cards = 0, other = 0;
+    for (int i = 0; i < 16; i++) {
+        char path[96], vendor[16], size[32];
+        snprintf(path, sizeof path, "/sys/class/drm/card%d/device/vendor", i);
+        if (!read_line(path, vendor, sizeof vendor)) continue;
+        cards++;
+        if (strcmp(vendor, "0x1002")) {
+            other = 1;
+            continue;
+        }
+        snprintf(path, sizeof path, "/sys/class/drm/card%d/device/mem_info_vram_total", i);
+        unsigned long long v = read_line(path, size, sizeof size) ? strtoull(size, NULL, 10) : 0;
+        if (v > vram_max) vram_max = v;
+    }
+    if (cards && !other && vram_max && vram_max <= 9126805504ull)   // 8.5 GiB
+        return snprintf(profile_why, sizeof profile_why, "AMD graphics card with %.1f GiB of video memory",
+                        vram_max / 1073741824.0), 1;
+    return 0;
 }
 
 static const char *raw_get(const char *name);
@@ -278,14 +393,22 @@ static int profile_of(void) {
     int p = __atomic_load_n(&profile, __ATOMIC_ACQUIRE);
     if (p >= 0) return p;
     const char *set = raw_get(PREFIX "DEVICE_PROFILE");
-    if (set && !strcmp(set, "deck")) p = 1;
-    else if (set && *set && strcmp(set, "auto")) p = 0;
-    else p = on_steam_deck();
+    p = PROFILE_NONE;
+    if (set && *set && strcasecmp(set, "auto")) {
+        for (int i = 0; i < PROFILE_COUNT; i++)
+            if (!strcasecmp(set, PROFILES[i].name)) p = i;
+        snprintf(profile_why, sizeof profile_why, "device_profile = %s", set);
+    } else {
+        char cpu[128] = "";
+        cpu_name(cpu, sizeof cpu);
+        p = on_steam_deck(cpu) ? PROFILE_DECK : on_legion_go_s(cpu) ? PROFILE_LEGION_GO_S
+            : on_small_pc() ? PROFILE_PC_SMALL : PROFILE_NONE;
+    }
     __atomic_store_n(&profile, p, __ATOMIC_RELEASE);
     return p;
 }
 
-const char *cfg_device_profile(void) { return profile_of() ? "deck" : "desktop"; }
+const char *cfg_device_profile(void) { return PROFILES[profile_of()].name; }
 
 // DKB_X in the environment stands for TOTK_X and wins over it: the TOTK_ names come from TotK Recomp and stay, so its
 // fixes keep applying without a rename.
@@ -312,9 +435,10 @@ static const char *raw_get(const char *name) {
 
 const char *cfg_get(const char *name) {
     const char *v = raw_get(name);
-    if (v || strncmp(name, PREFIX, PREFIX_LEN) || !profile_of()) return v;
-    for (size_t i = 0; i < sizeof DECK / sizeof *DECK; i++)
-        if (!strcasecmp(DECK[i].key, name + PREFIX_LEN)) return DECK[i].value;
+    if (v || strncmp(name, PREFIX, PREFIX_LEN)) return v;
+    int p = profile_of();
+    for (size_t i = 0; i < PROFILES[p].n; i++)
+        if (!strcasecmp(PROFILES[p].keys[i].key, name + PREFIX_LEN)) return PROFILES[p].keys[i].value;
     return NULL;
 }
 
@@ -712,7 +836,15 @@ static void load_ini(void) {
 
 void cfg_init(void) {
     load_ini();
-    if (profile_of())
-        rt_log("cfg: device profile Steam Deck: defaults for the keys the settings file does not set (TOTK_DEVICE_PROFILE=desktop "
-               "turns it off)");
+    int p = profile_of();
+    if (p != PROFILE_NONE) {
+        char keys[256] = "";
+        for (size_t i = 0; i < PROFILES[p].n; i++) {
+            size_t len = strlen(keys);
+            snprintf(keys + len, sizeof keys - len, "%s%s=%s", i ? ", " : "", PROFILES[p].keys[i].key,
+                     PROFILES[p].keys[i].value);
+        }
+        rt_log("cfg: device profile %s (%s): defaults for the keys the settings file does not set: %s "
+               "(TOTK_DEVICE_PROFILE=desktop turns it off)", PROFILES[p].title, profile_why, keys);
+    }
 }
