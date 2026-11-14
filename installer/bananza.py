@@ -904,6 +904,9 @@ def main(options):
         rep.emit('start', release=layout.release, mode=ctx.mode, dev=layout.dev, dest=str(dest), log=str(log),
                  game=info['game'], game_exe='dkb' + EXE, steps=[s.id for s in steps])
         result = run_steps(steps, ctx)
+        if result == 'ok':   # the launcher compares it with its own release (installer/launch.py installed_release)
+            ctx.state['release'] = layout.release
+            ctx.save()
     except InstallError as e:
         rep.error(e.id, e.params)
         result = 'failed'

@@ -15,6 +15,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from . import state as statefile
+
 GAME_EXE = 'dkb.exe' if os.name == 'nt' else 'dkb'
 ASSET = re.compile(r'LakuenApeRecomp-.+-x86_64\.AppImage')
 SUMS = 'SHA256SUMS.txt'
@@ -60,6 +62,53 @@ def remembered_game(path=None):
     """The remembered install folder when its game is still there, else None."""
     dest = load_settings(path).get('dest')
     return Path(dest) if dest and game_in(dest) else None
+
+
+def installed_release(dest):
+    """The release that last finished an install in dest (dkb-install.json, installer/bananza.py main), '' for an
+    install made before releases were recorded, or None without a readable state."""
+    try:
+        state = statefile.load(Path(dest), 'dkb-install.json')
+    except (statefile.StateError, OSError):
+        return None
+    return None if state is None else str(state.get('release') or '')
+
+
+def outdated(dest, release):
+    """Whether the game in dest was built by another release than the one running: the setup updates it then."""
+    installed = installed_release(dest)
+    return installed is not None and installed != release
+
+
+def playtime(dest, path=None):
+    """Seconds played from dest through this window (Play, --play)."""
+    try:
+        return int(load_settings(path).get('playtime', {}).get(str(Path(dest).resolve()), 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def add_playtime(dest, seconds, path=None):
+    """Adds a session's seconds to dest's play time. Never raises."""
+    path = path or settings_path()
+    try:
+        data = load_settings(path)
+        times = data.setdefault('playtime', {})
+        key = str(Path(dest).resolve())
+        times[key] = int(times.get(key, 0)) + max(0, int(seconds))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(data, indent=1), encoding='utf-8')
+        os.replace(tmp, path)
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def hours_minutes(seconds):
+    """(hours, minutes) of a play time, minutes rounded down."""
+    minutes = max(0, int(seconds)) // 60
+    return minutes // 60, minutes % 60
 
 
 def play(dest, popen=subprocess.Popen):

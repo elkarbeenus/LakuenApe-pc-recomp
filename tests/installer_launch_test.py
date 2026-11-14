@@ -94,6 +94,26 @@ class LaunchTest(unittest.TestCase):
         self.assertNotIn('APPIMAGE', seen['env'])
         self.assertEqual(launch.update_folder(self.tmp / 'x.AppImage'), self.tmp)
 
+    def test_installed_release_and_outdated(self):
+        self.assertIsNone(launch.installed_release(self.dest))   # no state: not an install
+        self.assertFalse(launch.outdated(self.dest, '0.3.0.6+abc'))
+        state = self.dest / 'dkb-install.json'
+        state.write_text('{"format": 1, "steps": {}}')
+        self.assertEqual(launch.installed_release(self.dest), '')   # made before releases were recorded
+        self.assertTrue(launch.outdated(self.dest, '0.3.0.6+abc'))
+        state.write_text('{"format": 1, "steps": {}, "release": "0.3.0.6+abc"}')
+        self.assertFalse(launch.outdated(self.dest, '0.3.0.6+abc'))
+        self.assertTrue(launch.outdated(self.dest, '0.3.0.7+def'))
+
+    def test_playtime_adds_up(self):
+        self.assertEqual(launch.playtime(self.dest, self.settings), 0)
+        launch.add_playtime(self.dest, 3600 + 25 * 60 + 30, self.settings)
+        launch.add_playtime(self.dest, 120, self.settings)
+        self.assertEqual(launch.hours_minutes(launch.playtime(self.dest, self.settings)), (1, 27))
+        launch.remember(self.dest, self.settings)   # remembering keeps the play time
+        self.assertEqual(launch.hours_minutes(launch.playtime(self.dest, self.settings)), (1, 27))
+        self.assertEqual(launch.hours_minutes(59), (0, 0))
+
     def test_newer_release_info(self):
         info, _ = release()
         self.assertEqual(update.newer_release_info('0.3.0.2+abc', fetch=lambda: info)['tag_name'], 'v0.3.0.3')

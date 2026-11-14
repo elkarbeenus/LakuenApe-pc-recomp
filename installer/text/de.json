@@ -190,5 +190,12 @@
  "phase.dkb_verify.dkb_run": "Selbsttests des installierten Programms laufen",
  "ui.update_mode": "In diesem Ordner liegt eine frühere Installation. Das Setup setzt sie fort oder aktualisiert sie; die Spieldateien werden nur abgefragt, wenn sie wieder gebraucht werden.",
  "ui.update_none": "Kein neues Release verfügbar: Du hast die neueste Version ({version}).",
- "ui.update_check_failed": "Konnte nicht nach einem neuen Release suchen (offline?). Du kannst den aktuellen Stand spielen."
+ "ui.update_check_failed": "Konnte nicht nach einem neuen Release suchen (offline?). Du kannst den aktuellen Stand spielen.",
+ "ui.playtime": "Spielzeit: {time}",
+ "ui.time_hm": "{hours} Std. {minutes} Min.",
+ "ui.time_m": "{minutes} Min.",
+ "ui.install_outdated": "Das installierte Spiel stammt aus einer älteren Version ({installed}). Installation jetzt auf {version} aktualisieren? Deinen Dump fragt das Setup nur ab, wenn es die Spieldaten neu auspacken muss.",
+ "ui.install_outdated_unknown": "Das installierte Spiel stammt aus einer älteren Version. Installation jetzt auf {version} aktualisieren? Deinen Dump fragt das Setup nur ab, wenn es die Spieldaten neu auspacken muss.",
+ "ui.install_update": "Installation aktualisieren",
+ "ui.install_skip": "Trotzdem spielen"
 }

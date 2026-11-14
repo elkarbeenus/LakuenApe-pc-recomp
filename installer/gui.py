@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
@@ -90,6 +91,7 @@ def apply_theme(root, ui_font):
     style.configure('Err.TLabel', foreground=RED_TEXT)
     style.configure('Warn.TLabel', foreground=BANANA)
     style.configure('Version.TLabel', background=FRAME, foreground=MUTED)
+    style.configure('Muted.TLabel', foreground=MUTED)   # the launcher's play time
     return style
 
 
@@ -204,14 +206,11 @@ class App:
         elif game == 'bananza' and start.get('launcher'):
             found = launch.game_in(dest) and Path(dest) or launch.remembered_game()
             if found:   # a game built before: the window is its launcher
-                self.launch_dest = found
-                self.vars['dest'].set(str(found))
-                self.bind_text(self.launch_text, 'text', 'ui.launch_text', dest=str(found))
-                self.show('launch')
+                self.show_launcher(found)
                 if check_updates:
                     threading.Thread(target=self.check_update_launch, daemon=True).start()
                 elif self.play_now:
-                    self.root.after(100, self.play)
+                    self.root.after(100, self.play_or_ask)
                 return
         if self.play_now:   # --play without a built game: the setup is what there is to show
             self.root.deiconify()
@@ -658,6 +657,8 @@ class App:
         bar.pack(side='bottom', fill='x', pady=(12, 0))
         self.launch_play = self.button(bar, 'ui.play', self.play, style='Accent.TButton')
         self.launch_play.pack(side='right')
+        self.playtime_label = ttk.Label(bar, style='Muted.TLabel')   # the play time beside Play
+        self.playtime_label.pack(side='right', padx=(0, 12))
         self.button(bar, 'ui.setup_again', lambda: self.show('form')).pack(side='left')
         self.label(f, 'ui.launch_title', style='Title.TLabel').pack(anchor='w')
         self.launch_text = ttk.Label(f, wraplength=620, justify='left')
@@ -669,10 +670,44 @@ class App:
         self.update_buttons.pack(anchor='w')
         self.button(self.update_buttons, 'ui.update_now', self.do_update, style='Accent.TButton').pack(side='left')
         self.button(self.update_buttons, 'ui.update_skip', self.play).pack(side='left', padx=(8, 0))
+        self.outdated_box = ttk.Frame(f)   # packed when the game in the folder is older than this setup
+        self.outdated_text = ttk.Label(self.outdated_box, style='Warn.TLabel', wraplength=620, justify='left')
+        self.outdated_text.pack(anchor='w', pady=(0, 6))
+        row = ttk.Frame(self.outdated_box)
+        row.pack(anchor='w')
+        self.button(row, 'ui.install_update', self.update_install, style='Accent.TButton').pack(side='left')
+        self.button(row, 'ui.install_skip', self.play).pack(side='left', padx=(8, 0))
         self.launch_note = ttk.Label(f, wraplength=620, justify='left')
         self.launch_note.pack(anchor='w', pady=(8, 0))
         self.launch_dest = None
+        self.install_outdated = False
+        self.play_started = None
         return f
+
+    def show_launcher(self, dest):
+        """The start screen on dest: its play time, and the question when its game is older than this setup."""
+        self.launch_dest = dest
+        self.vars['dest'].set(str(dest))
+        self.bind_text(self.launch_text, 'text', 'ui.launch_text', dest=str(dest))
+        hours, minutes = launch.hours_minutes(launch.playtime(dest))
+        played = self.cat('ui.time_hm', hours=hours, minutes=minutes) if hours else self.cat('ui.time_m', minutes=minutes)
+        self.bind_text(self.playtime_label, 'text', 'ui.playtime', time=played)
+        installed = launch.installed_release(dest)
+        self.install_outdated = installed is not None and installed != self.layout.release
+        if self.install_outdated:
+            if installed:
+                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated', installed=installed,
+                               version=self.layout.release)
+            else:
+                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated_unknown', version=self.layout.release)
+            self.outdated_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
+        self.show('launch')
+
+    def update_install(self):
+        """Runs the setup on the remembered folder with this release: it rebuilds what changed."""
+        self.vars['dest'].set(str(self.launch_dest))
+        self.show('form')
+        self.start()
 
     def check_update_launch(self):
         latest = update.fetch_latest()   # None offline
@@ -690,7 +725,7 @@ class App:
             self.bind_text(self.launch_note, 'text', 'ui.update_check_failed' if info == 'offline' else 'ui.update_none',
                            version=self.layout.release)
             if self.play_now:
-                self.play()
+                self.play_or_ask()
             return
         self.update_info = info
         self.bind_text(self.update_text, 'text', 'ui.update_found', tag=info['tag_name'], version=self.layout.release)
@@ -732,6 +767,14 @@ class App:
             w.state(['!disabled'])
         self.launch_play.state(['!disabled'])
 
+    def play_or_ask(self):
+        """--play: the game at once, unless it is older than this setup, which the window then asks about."""
+        if self.install_outdated:
+            self.root.deiconify()
+            self.fit()
+        else:
+            self.play()
+
     def play(self, dest=None):
         """Starts the game and waits for it with the window hidden: started from Steam (a non-Steam game pointing at
         the AppImage, with --play for no window at all), Steam then counts the game as running until it ends."""
@@ -743,6 +786,7 @@ class App:
             note.configure(text=self.cat('ui.play_failed', detail=str(e)))
             return
         launch.remember(dest)
+        self.play_started = (dest, time.monotonic())
         self.root.withdraw()
         self.root.after(500, self.wait_game)
 
@@ -750,6 +794,9 @@ class App:
         if self.game_process and self.game_process.poll() is None:
             self.root.after(500, self.wait_game)
             return
+        if self.play_started:   # the session's time joins the folder's play time
+            dest, began = self.play_started
+            launch.add_playtime(dest, time.monotonic() - began)
         self.root.destroy()
 
     # ---- when done --------------------------------------------------------------------------------------------------
@@ -941,10 +988,8 @@ def selftest(layout, shots=None, game='totk'):
             app.refresh_finish()
             shot(f'finish-cancelled-{tag}')
             if game == 'bananza':   # the launcher with a newer release's question
-                app.launch_dest = Path(destination)
-                app.bind_text(app.launch_text, 'text', 'ui.launch_text', dest=destination)
+                app.show_launcher(Path(destination))
                 app.on_update_found({'tag_name': 'v9.9.9', 'html_url': 'https://example.invalid'})
-                app.show('launch')
                 shot(f'launch-{tag}')
             app.toggle_log()
         root.destroy()

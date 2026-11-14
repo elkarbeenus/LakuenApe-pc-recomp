@@ -58,7 +58,8 @@ updates carry over.
   **Play** and asks about a newer release of this fork (update now or play the current version). An update downloads the
   release's AppImage next to the running one, checks it against `SHA256SUMS.txt` and updates the install with it.
   `--play` starts the game without the window, for Steam; the window waits hidden while the game runs, so Steam counts
-  it as running. (`installer/launch.py`, `installer/gui.py`)
+  it as running. The start screen shows the play time beside **Play**, and when the game in the folder was built by an
+  older release than the AppImage it offers **Update installation** first. (`installer/launch.py`, `installer/gui.py`)
 - **German** in the setup window and the settings menu, picked by the system language or chosen by hand (the setup's
   DE button, the menu's Settings language). The setup's texts no longer name the game. (`installer/text/de.json`,
   `runtime/ui_text.c`)
