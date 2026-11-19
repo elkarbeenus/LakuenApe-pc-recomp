@@ -1099,13 +1099,13 @@ class App:
         self.label(f, 'ui.launch_title', style='Title.TLabel').pack(anchor='w')
         self.launch_text = ttk.Label(f, wraplength=620, justify='left')
         self.launch_text.pack(anchor='w', pady=(8, 8))
-        self.update_box = ttk.Frame(f)   # packed when a newer release is found
-        self.update_text = ttk.Label(self.update_box, style='Warn.TLabel', wraplength=620, justify='left')
-        self.update_text.pack(anchor='w', pady=(0, 6))
-        self.update_buttons = ttk.Frame(self.update_box)
-        self.update_buttons.pack(anchor='w')
-        self.button(self.update_buttons, 'ui.update_now', self.do_update, style='Accent.TButton').pack(side='left')
-        self.button(self.update_buttons, 'ui.update_skip', self.play_game).pack(side='left', padx=(8, 0))
+        self.launch_update_box = ttk.Frame(f)   # packed when a newer release is found
+        self.launch_update_text = ttk.Label(self.launch_update_box, style='Warn.TLabel', wraplength=620, justify='left')
+        self.launch_update_text.pack(anchor='w', pady=(0, 6))
+        self.launch_update_buttons = ttk.Frame(self.launch_update_box)
+        self.launch_update_buttons.pack(anchor='w')
+        self.button(self.launch_update_buttons, 'ui.update_now', self.do_update, style='Accent.TButton').pack(side='left')
+        self.button(self.launch_update_buttons, 'ui.update_skip', self.play_game).pack(side='left', padx=(8, 0))
         self.outdated_box = ttk.Frame(f)   # packed when the game in the folder is older than this setup
         self.outdated_text = ttk.Label(self.outdated_box, style='Warn.TLabel', wraplength=620, justify='left')
         self.outdated_text.pack(anchor='w', pady=(0, 6))
@@ -1164,8 +1164,8 @@ class App:
                 self.play_or_ask()
             return
         self.update_info = info
-        self.bind_text(self.update_text, 'text', 'ui.update_found', tag=info['tag_name'], version=self.layout.release)
-        self.update_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
+        self.bind_text(self.launch_update_text, 'text', 'ui.update_found', tag=info['tag_name'], version=self.layout.release)
+        self.launch_update_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
         self.root.deiconify()
         self.fit()
 
@@ -1177,7 +1177,7 @@ class App:
         if image is None:   # not started as an AppImage (a checkout, Windows): the release page instead
             webbrowser.open(info['html_url'])
             return
-        for w in self.update_buttons.winfo_children():
+        for w in self.launch_update_buttons.winfo_children():
             w.state(['disabled'])
         self.launch_play.state(['disabled'])
         threading.Thread(target=self.appimage_update_worker, args=(info, image), daemon=True).start()
@@ -1199,7 +1199,7 @@ class App:
 
     def appimage_update_failed(self, detail):
         self.launch_note.configure(text=self.cat('ui.update_failed', detail=detail))
-        for w in self.update_buttons.winfo_children():
+        for w in self.launch_update_buttons.winfo_children():
             w.state(['!disabled'])
         self.launch_play.state(['!disabled'])
 
