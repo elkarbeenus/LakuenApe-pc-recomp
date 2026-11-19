@@ -22,13 +22,21 @@
 #include "ui/menu.h"
 #include "vk.h"
 #include "platform/platform.h"
+#include "switch_rumble.h"
+#include "switch2.h"
 
 enum { STICK_MAX = 32767, STICK_DIR = 16384, TRIGGER_ON = 16384, RESCAN_MS = 1000 };
 
 static PlatMutex lock = PLAT_MUTEX_INIT;
 static int state;                    // 0 not started, 1 running, -1 disabled or SDL failed
+static int hd_sent, hd_failed;   // under lock: HD packets went out; a disconnect followed them (#363)
 static SDL_Gamepad *pad;
 static uint64_t next_scan;
+static unsigned pad_device_seen;
+static InputHoldGate pad_fullscreen_gate;
+static int pad_fullscreen_pending;   // taken under lock; fullscreen request is posted after unlocking
+static void start(void);
+static int pad_switch;               // the open gamepad is a Switch Pro Controller or Joy-Con (HD rumble packets)
 static int pad_rumble;               // the open gamepad has rumble motors
 static volatile int32_t pad_labels[4];  // ... and the labels of its south, east, west, north buttons (PAD_LABEL_*), any thread
 static int pad_east_a;               // ... and labels its east face button A (Nintendo layout under TOTK_PAD_LAYOUT=auto)
@@ -49,6 +57,7 @@ static const SDL_GamepadButton pad_sdl[PAD_COUNT] = {
     [PAD_DPAD_RIGHT] = SDL_GAMEPAD_BUTTON_DPAD_RIGHT, [PAD_DPAD_DOWN] = SDL_GAMEPAD_BUTTON_DPAD_DOWN,
     [PAD_LPADDLE1] = SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, [PAD_RPADDLE1] = SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1,
     [PAD_LPADDLE2] = SDL_GAMEPAD_BUTTON_LEFT_PADDLE2, [PAD_RPADDLE2] = SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2,
+    [PAD_TOUCHPAD] = SDL_GAMEPAD_BUTTON_TOUCHPAD,   // the DualSense and DualShock 4 touchpad click (#291)
 };
 
 // TOTK_INPUT_SCRIPT=<file>: lines "<frame> <button> [hold]" or "<frame> LSTICK|RSTICK <x> <y> [hold]", ORed into the real input.
@@ -117,35 +126,36 @@ static void script_load(void) {
 
 // DKB_LIVE_INPUT=<file> (test harness): the first line of the file, read again every 6th call, lists the buttons held right now
 // (names as in TOTK_INPUT_SCRIPT, whitespace or comma separated; "LSTICK:x:y" and "RSTICK:x:y" set a stick). The file can be
-// rewritten while the game runs, so a person or a script can drive it step by step.
-static void live_apply(uint64_t *b, int32_t sl[2], int32_t sr[2]) {
-    static const char *path = (const char *)-1;
-    static unsigned calls;
-    static uint64_t bits;
-    static int32_t ls[2], rs[2];
-    if (path == (const char *)-1) path = getenv("DKB_LIVE_INPUT");
-    if (!path) return;
-    if (calls++ % 6 == 0) {
-        bits = 0, ls[0] = ls[1] = rs[0] = rs[1] = 0;
-        FILE *f = fopen(path, "r");
+// rewritten while the game runs, so a person or a script can drive it step by step. DKB_LIVE_INPUT2 does the same for
+// player 2 (input_poll2), and while it is set player 2 counts as connected. Returns 0 when the variable is not set.
+typedef struct { const char *env, *path; unsigned calls; uint64_t bits; int32_t ls[2], rs[2]; } LiveInput;
+static int live_read(LiveInput *L, uint64_t *b, int32_t sl[2], int32_t sr[2]) {
+    if (L->path == (const char *)-1) L->path = getenv(L->env);
+    if (!L->path) return 0;
+    if (L->calls++ % 6 == 0) {
+        L->bits = 0, L->ls[0] = L->ls[1] = L->rs[0] = L->rs[1] = 0;
+        FILE *f = fopen(L->path, "r");
         if (f) {
             char line[256];
             if (fgets(line, sizeof line, f)) {
                 for (char *s = line, *tok; (tok = strtok(s, " ,\r\n\t")); s = NULL) {
                     int x, y;
-                    if (sscanf(tok, "LSTICK:%d:%d", &x, &y) == 2) { ls[0] = x, ls[1] = y; continue; }
-                    if (sscanf(tok, "RSTICK:%d:%d", &x, &y) == 2) { rs[0] = x, rs[1] = y; continue; }
+                    if (sscanf(tok, "LSTICK:%d:%d", &x, &y) == 2) { L->ls[0] = x, L->ls[1] = y; continue; }
+                    if (sscanf(tok, "RSTICK:%d:%d", &x, &y) == 2) { L->rs[0] = x, L->rs[1] = y; continue; }
                     for (size_t i = 0; i < sizeof script_buttons / sizeof *script_buttons; i++)
-                        if (!strcmp(tok, script_buttons[i].name)) bits |= 1ull << script_buttons[i].bit;
+                        if (!strcmp(tok, script_buttons[i].name)) L->bits |= 1ull << script_buttons[i].bit;
                 }
             }
             fclose(f);
         }
     }
-    *b |= bits;
-    if (ls[0] || ls[1]) sl[0] = ls[0], sl[1] = ls[1];
-    if (rs[0] || rs[1]) sr[0] = rs[0], sr[1] = rs[1];
+    *b |= L->bits;
+    if (L->ls[0] || L->ls[1]) sl[0] = L->ls[0], sl[1] = L->ls[1];
+    if (L->rs[0] || L->rs[1]) sr[0] = L->rs[0], sr[1] = L->rs[1];
+    return 1;
 }
+static LiveInput live1 = {"DKB_LIVE_INPUT", (const char *)-1}, live2 = {"DKB_LIVE_INPUT2", (const char *)-1};
+static void live_apply(uint64_t *b, int32_t sl[2], int32_t sr[2]) { live_read(&live1, b, sl, sr); }
 
 static void script_apply(uint64_t *b, int32_t sl[2], int32_t sr[2]) {
     live_apply(b, sl, sr);
@@ -387,21 +397,174 @@ static void stick(SDL_GamepadAxis ax, SDL_GamepadAxis ay, float dead, int32_t ou
     input_pad_stick(SDL_GetGamepadAxis(pad, ax), -(int32_t)SDL_GetGamepadAxis(pad, ay), dead, out);
 }
 
-// Open the first gamepad when none is open or the open one went away; logs once per change.
-static void scan_pads(void) {
-    if (pad && SDL_GamepadConnected(pad)) return;
-    if (pad) {
-        SDL_CloseGamepad(pad); pad = NULL; sensor_pad = 0; sensor_ok = 0;
-        plat_xchg32(&pad_layout_shown, -1);
-        for (int i = 0; i < 4; i++) plat_xchg32(&pad_labels[i], PAD_LABEL_NONE);
-        rt_log("input: gamepad disconnected");
-    }
+// Stable across sessions for devices with serial numbers. Without a serial, identical devices
+// use their enumeration ordinal (SDL instance IDs themselves are only valid for this session).
+static uint64_t device_hash(const char *s) {
+    uint64_t h = UINT64_C(14695981039346656037);
+    for (; s && *s; s++) { h ^= (unsigned char)*s; h *= UINT64_C(1099511628211); }
+    return h;
+}
+
+// Retain identities and fallback ordinals for connected instance IDs. Opening an idle
+// controller can perform slow USB handshakes, so polling must not reopen a known device.
+// Failed opens are retained too, until that instance disappears from the device list.
+typedef struct { InputPadDevice device; int open_failed; } CachedPadDevice;
+static CachedPadDevice *device_cache;
+static int device_cache_count;
+
+// Under input lock. Only newly seen devices need a temporary reference to read their serial.
+static int devices_locked(InputPadDevice **devices) {
+    *devices = NULL;
     int n = 0;
     SDL_JoystickID *ids = SDL_GetGamepads(&n);
-    for (int i = 0; ids && i < n && !pad; i++) pad = SDL_OpenGamepad(ids[i]);
+    if (!n) {
+        free(device_cache); device_cache = NULL; device_cache_count = 0;
+        SDL_free(ids);
+        return 0;
+    }
+    InputPadDevice *out = n > 0 ? calloc((size_t)n, sizeof *out) : NULL;
+    if (!out) { SDL_free(ids); return 0; }
+    CachedPadDevice *cache = calloc((size_t)n, sizeof *cache);
+    for (int i = 0; i < n; i++) {
+        const char *name = SDL_GetGamepadNameForID(ids[i]);
+        char guid[33], base[80];
+        SDL_GUIDToString(SDL_GetGamepadGUIDForID(ids[i]), guid, sizeof guid);
+        snprintf(base, sizeof base, "%s:%016llx", guid, (unsigned long long)device_hash(name));
+        out[i].id = ids[i];
+        for (int j = 0; j < device_cache_count; j++)
+            if (device_cache[j].device.id == ids[i] &&
+                !strncmp(device_cache[j].device.key, base, strlen(base))) {
+                snprintf(out[i].key, sizeof out[i].key, "%s", device_cache[j].device.key);
+                if (cache) cache[i].open_failed = device_cache[j].open_failed;
+                break;
+            }
+        if (out[i].key[0]) continue;
+        SDL_Gamepad *ref = SDL_OpenGamepad(ids[i]);
+        const char *serial = ref ? SDL_GetGamepadSerial(ref) : NULL;
+        if (cache) cache[i].open_failed = ref == NULL;
+        if (serial && *serial)
+            snprintf(out[i].key, sizeof out[i].key, "%s:s%016llx", base, (unsigned long long)device_hash(serial));
+        else
+            snprintf(out[i].key, sizeof out[i].key, "%s:n0", base);
+        if (ref) SDL_CloseGamepad(ref);
+    }
+    for (int i = 0; i < n; i++) {
+        char *suffix = strrchr(out[i].key, ':');
+        int ordinal = suffix && suffix[1] == 'n' ? atoi(suffix + 2) : 0;
+        if (suffix && suffix[1] == 'n' && !ordinal) {
+            char candidate[128];
+            int used;
+            do {
+                ++ordinal;
+                snprintf(candidate, sizeof candidate, "%.*s:n%d", (int)(suffix - out[i].key), out[i].key, ordinal);
+                used = 0;
+                for (int j = 0; j < n; j++) if (!strcmp(candidate, out[j].key)) used = 1;
+            } while (used);
+            snprintf(out[i].key, sizeof out[i].key, "%s", candidate);
+        }
+        const char *name = SDL_GetGamepadNameForID(ids[i]);
+        if (ordinal)
+            snprintf(out[i].name, sizeof out[i].name, "%s (#%d, ID %u)", name ? name : "Unknown controller", ordinal, ids[i]);
+        else snprintf(out[i].name, sizeof out[i].name, "%s (ID %u)", name ? name : "Unknown controller", ids[i]);
+    }
+    if (cache) {
+        for (int i = 0; i < n; i++) cache[i].device = out[i];
+        free(device_cache);
+        device_cache = cache;
+        device_cache_count = n;
+    }
     SDL_free(ids);
+    *devices = out;
+    return n;
+}
+
+// Under input lock. Selection must not bypass a failed identity open on every scan.
+static SDL_Gamepad *open_pad_locked(uint32_t id) {
+    CachedPadDevice *cached = NULL;
+    for (int i = 0; i < device_cache_count; i++)
+        if (device_cache[i].device.id == id) { cached = &device_cache[i]; break; }
+    if (cached && cached->open_failed) return NULL;
+    SDL_Gamepad *opened = SDL_OpenGamepad(id);
+    if (cached && !opened) cached->open_failed = 1;
+    return opened;
+}
+
+int input_pad_devices(InputPadDevice **devices) {
+    plat_mutex_lock(&lock);
+    if (!state) start();
+    *devices = NULL;
+    int n = state == 1 ? devices_locked(devices) : 0;
+    plat_mutex_unlock(&lock);
+    return n;
+}
+
+static InputPadSelection pad_selection;
+
+void input_pad_selection_changed(void) {
+    plat_mutex_lock(&lock);
+    pad_selection.force = 1;
+    next_scan = 0;
+    plat_mutex_unlock(&lock);
+}
+
+int input_pad_automatic(void) {
+    plat_mutex_lock(&lock);
+    int automatic = pad_selection.automatic;
+    plat_mutex_unlock(&lock);
+    return automatic;
+}
+
+// Polling owns the connection history; UI enumeration only reads device identities. Arrivals take over,
+// disconnections fall back, and an explicit preference applies at startup or when changed by the user.
+static void scan_pads(void) {
+    pad_device_seen = cfg_version();
+    const char *preferred = cfg_value("TOTK_PAD_DEVICE");
+    InputPadDevice *devices;
+    int n = devices_locked(&devices);
+    uint32_t current = pad && SDL_GamepadConnected(pad) ? SDL_GetGamepadID(pad) : 0;
+    if (!n && current) { free(devices); return; }   // do not interpret a failed snapshot as a topology change
+    pad_selection.keep = cfg_bool("TOTK_COOP");   // a second gamepad joins as player 2 instead of taking player 1 over
+    uint32_t wanted = input_pad_choose(&pad_selection, devices, n, preferred, current);
+    if (current && current == wanted) { free(devices); return; }
+    SDL_Gamepad *next = wanted ? open_pad_locked(wanted) : NULL;
+    if (!next && current) {   // a failed arrival must not discard a still-working controller
+        pad_selection.automatic = 1;
+        free(devices);
+        return;
+    }
+    if (!next)
+        for (int i = 0; i < n && !next; i++)
+            if (devices[i].id != wanted) next = open_pad_locked(devices[i].id);
+    if (next && SDL_GetGamepadID(next) != wanted) pad_selection.automatic = 1;
+    free(devices);
+    if (pad) {
+        SDL_RumbleGamepad(pad, 0, 0, 0);
+        SDL_RumbleGamepadTriggers(pad, 0, 0, 0);
+        SDL_CloseGamepad(pad); pad = NULL; sensor_pad = 0; sensor_ok = 0;
+        pad_rumble = pad_switch = 0;
+        motion_restart(motion_global());
+        plat_xchg32(&pad_layout_shown, -1);
+        for (int i = 0; i < 4; i++) plat_xchg32(&pad_labels[i], PAD_LABEL_NONE);
+        rt_log(current ? "input: gamepad released for selection change" : "input: gamepad disconnected");
+        // Some Switch-mode clone pads (a Machenike G5 Pro over Bluetooth, #363) drop the link at their first HD
+        // packets: after a disconnect that follows HD packets, the rest of the session uses the two-motor path.
+        if (!current && hd_sent && !hd_failed) {
+            hd_failed = 1;
+            rt_log("input: HD rumble off for this session after a disconnect (rumble_hd = off keeps it off)");
+        }
+    }
+    pad = next;
     if (!pad) return;
     pad_rumble = SDL_GetBooleanProperty(SDL_GetGamepadProperties(pad), SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false);
+    SDL_GamepadType gt = SDL_GetGamepadType(pad);
+    // SDL types the Switch 2 controllers (Nintendo, 0x2066 to 0x2073; over USB SDL_hidapi_switch2.c, over Bluetooth
+    // switch2.c's virtual gamepad) as their Switch 1 counterparts, but neither takes a Switch 1 HD packet: SDL's
+    // Switch 2 driver refuses SDL_SendGamepadEffect, so with rumble_hd = auto such a pad would get no rumble at all.
+    // Over USB they take the two-motor path (SDL plays it as the controller's own HD rumble at fixed frequencies).
+    uint16_t vid = SDL_GetGamepadVendor(pad), pid = SDL_GetGamepadProduct(pad);
+    int switch2 = vid == 0x057E && pid >= 0x2066 && pid <= 0x2073;
+    pad_switch = !switch2 && (gt == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO || gt == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT ||
+                              gt == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT || gt == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR);
     pad_east_a = SDL_GetGamepadButtonLabel(pad, SDL_GAMEPAD_BUTTON_EAST) == SDL_GAMEPAD_BUTTON_LABEL_A;
     for (int i = 0; i < 4; i++) {
         SDL_GamepadButtonLabel lb = SDL_GetGamepadButtonLabel(pad, pad_sdl[PAD_SOUTH + i]);
@@ -495,6 +658,7 @@ static void start(void) {
     if (!SDL_Init(SDL_INIT_GAMEPAD)) { state = -1; rt_log("input: SDL gamepad init failed (%s), keyboard only", SDL_GetError()); }
     else state = 1;
     if (state == 1) test_pad_attach();
+    if (state == 1) switch2_start();   // Switch 2 controllers over Bluetooth, as virtual gamepads (TOTK_SWITCH2)
     if (state == 1) {
         scan_pads();
         if (!pad) rt_log("input: no gamepad (keyboard only until one is connected)");
@@ -516,14 +680,38 @@ static void pick(int32_t *x, int32_t *y, int32_t kx, int32_t ky) {
 
 // Under lock, state 1: the open gamepad's inputs by position (pd[PAD_*] != 0 held); 0 without a connected gamepad.
 static int pad_physical(uint8_t pd[PAD_COUNT]) {
-    if ((!pad || !SDL_GamepadConnected(pad)) && plat_now_ns() / 1000000u >= next_scan) { next_scan = plat_now_ns() / 1000000u + RESCAN_MS; scan_pads(); }
+    if (pad_device_seen != cfg_version() || plat_now_ns() / 1000000u >= next_scan) { next_scan = plat_now_ns() / 1000000u + RESCAN_MS; scan_pads(); }
     SDL_UpdateGamepads();
-    if (!pad || !SDL_GamepadConnected(pad)) return 0;
+    if (!pad || !SDL_GamepadConnected(pad)) {
+        uint64_t empty = 0;
+        input_hold_gate(&pad_fullscreen_gate, 0, plat_now_ns(), &empty);
+        pad_fullscreen_pending = 0;
+        return 0;
+    }
     for (int p = PAD_SOUTH; p < PAD_ZL; p++) pd[p] = SDL_GetGamepadButton(pad, pad_sdl[p]);
     pd[PAD_ZL] = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_ON;
     pd[PAD_ZR] = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_ON;
     for (int p = PAD_ZR + 1; p < PAD_COUNT; p++) pd[p] = SDL_GetGamepadButton(pad, pad_sdl[p]);   // false without paddles
+    SDL_JoystickID id = SDL_GetGamepadID(pad);
+    if (pad_fullscreen_gate.device != id) pad_fullscreen_pending = 0;
+    uint64_t shortcut = (pd[PAD_START] ? 1ull << B_PLUS : 0) | (pd[PAD_BACK] ? 1ull << B_MINUS : 0);
+    if (cfg_bool("TOTK_PAD_FULLSCREEN_HOLD"))
+        pad_fullscreen_pending |= input_hold_gate(&pad_fullscreen_gate, id, plat_now_ns(), &shortcut);
+    else {
+        pad_fullscreen_gate = (InputHoldGate){0};
+        pad_fullscreen_pending = 0;
+    }
+    // Consume physical buttons before remapping: the fixed shortcut neither depends on
+    // the player's bindings nor swallows another controller's or the keyboard's inputs.
+    if (!(shortcut & (1ull << B_PLUS))) pd[PAD_START] = 0;
+    if (!(shortcut & (1ull << B_MINUS))) pd[PAD_BACK] = 0;
     return 1;
+}
+
+static int pad_fullscreen_take(void) {
+    int toggle = pad_fullscreen_pending;
+    pad_fullscreen_pending = 0;
+    return toggle;
 }
 
 // Under lock, state 1: the open gamepad's buttons (Switch bits after TOTK_PAD_LAYOUT and the TOTK_BIND_* lines) and
@@ -582,14 +770,22 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
     }
     script_apply(&b, sl, sr);
     rec_apply(b, sl, sr);
-    // Minus and Plus held together (gamepad or keys) open or close the menu and never reach the game
+    int fullscreen = pad_fullscreen_take();
     static int combo_held;
     int32_t st[4] = {sl[0], sl[1], sr[0], sr[1]};
-    int toggle = input_menu_gate(&combo_held, menu_is_open(), &b, st);
+    // Keep the original merged Minus+Plus settings shortcut unless fullscreen is opted in.
+    int toggle = 0;
+    if (!cfg_bool("TOTK_PAD_FULLSCREEN_HOLD"))
+        toggle = input_menu_gate(&combo_held, menu_is_open(), &b, st);
+    else {
+        combo_held = 0;
+        if (menu_is_open()) { b = 0; st[0] = st[1] = st[2] = st[3] = 0; }
+    }
     static int overlay_held;   // L3+R3 step the performance overlay (F10)
     int overlay = input_overlay_gate(&overlay_held, &b);
     sl[0] = st[0], sl[1] = st[1], sr[0] = st[2], sr[1] = st[3];
     plat_mutex_unlock(&lock);
+    if (fullscreen) gfx_window_toggle_fullscreen();
     if (toggle || guide_toggle) menu_toggle();
     if (overlay) menu_perf_cycle();
     stick_bits(&b, sl[0], sl[1], B_SL_LEFT);
@@ -678,11 +874,74 @@ int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly) {
     if (!state) start();
     if (state > 0) binds_refresh();
     int ok = state == 1 && pad_read(&b, sl, sr);
+    int toggle = pad_fullscreen_take();
     plat_mutex_unlock(&lock);
+    if (toggle) gfx_window_toggle_fullscreen();
     *buttons = b;
     *lx = sl[0];
     *ly = sl[1];
     return ok;
+}
+
+// Player 2 (coop = 1, ov_input.c): the first connected gamepad in SDL's order that is not player 1's. With no gamepad
+// on player 1 there is no player 2 either, so one gamepad always plays player 1. Under lock.
+static SDL_Gamepad *pad2;
+static int pad2_east_a;
+static uint64_t pad2_next_scan;
+
+static void pad2_scan(void) {
+    SDL_JoystickID p1 = pad && SDL_GamepadConnected(pad) ? SDL_GetGamepadID(pad) : 0;
+    if (pad2 && SDL_GamepadConnected(pad2) && SDL_GetGamepadID(pad2) != p1) return;
+    if (pad2) {   // SDL counts opens per gamepad, so this keeps player 1's handle when both were the same pad
+        SDL_CloseGamepad(pad2);
+        pad2 = NULL;
+        rt_log("input: player 2 gamepad released");
+    }
+    uint64_t now = plat_now_ns() / 1000000u;
+    if (!p1 || now < pad2_next_scan) return;
+    pad2_next_scan = now + RESCAN_MS;
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&n);
+    for (int i = 0; i < n && !pad2; i++)
+        if (ids[i] != p1) pad2 = open_pad_locked(ids[i]);
+    SDL_free(ids);
+    if (!pad2) return;
+    pad2_east_a = SDL_GetGamepadButtonLabel(pad2, SDL_GAMEPAD_BUTTON_EAST) == SDL_GAMEPAD_BUTTON_LABEL_A;
+    rt_log("input: player 2 gamepad \"%s\"", SDL_GetGamepadName(pad2));
+}
+
+int input_poll2(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *ry) {
+    uint64_t b = 0;
+    int32_t sl[2] = {0, 0}, sr[2] = {0, 0};
+    int on = 0;
+    plat_mutex_lock(&lock);
+    if (!state) start();
+    if (state == 1 && !cfg_bool("TOTK_COOP") && pad2) {
+        SDL_CloseGamepad(pad2);
+        pad2 = NULL;
+    }
+    if (state == 1 && cfg_bool("TOTK_COOP")) {
+        pad2_scan();
+        if (pad2) {
+            on = 1;
+            uint8_t pd[PAD_COUNT] = {0};
+            for (int p = PAD_SOUTH; p < PAD_ZL; p++) pd[p] = SDL_GetGamepadButton(pad2, pad_sdl[p]);
+            pd[PAD_ZL] = SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_ON;
+            pd[PAD_ZR] = SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_ON;
+            for (int p = PAD_ZR + 1; p < PAD_COUNT; p++) pd[p] = SDL_GetGamepadButton(pad2, pad_sdl[p]);
+            b = input_map_pad_buttons(pd, input_pad_layout_pick(cfg_value("TOTK_PAD_LAYOUT"), pad2_east_a));
+            float dead = stick_dead_get();
+            input_pad_stick(SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_LEFTX), -(int32_t)SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_LEFTY), dead, sl);
+            input_pad_stick(SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_RIGHTX), -(int32_t)SDL_GetGamepadAxis(pad2, SDL_GAMEPAD_AXIS_RIGHTY), dead, sr);
+        }
+    }
+    if (cfg_bool("TOTK_COOP")) on |= live_read(&live2, &b, sl, sr);
+    plat_mutex_unlock(&lock);
+    if (g_block || g_menu) b = 0, sl[0] = sl[1] = sr[0] = sr[1] = 0;   // a text entry or the menu holds both players
+    stick_bits(&b, sl[0], sl[1], B_SL_LEFT);
+    stick_bits(&b, sr[0], sr[1], B_SR_LEFT);
+    *buttons = b; *lx = sl[0]; *ly = sl[1]; *rx = sr[0]; *ry = sr[1];
+    return on;
 }
 
 uint16_t rumble_motor(float a, float curve, float strength) {
@@ -693,6 +952,43 @@ uint16_t rumble_motor(float a, float curve, float strength) {
 
 int input_pad_layout(void) {
     return (int)plat_cas32(&pad_layout_shown, 0, 0);
+}
+
+int input_sony_pad_present(void) {
+    const char *e = cfg_get("TOTK_INPUT");
+    if (e && !strcmp(e, "none")) return 0;
+    // SDL_Init counts its callers, so start() initialising the subsystem again later is harmless.
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        rt_log("input: PlayStation prompts: SDL gamepad init failed (%s)", SDL_GetError());
+        return 0;
+    }
+    // A pad is not always listed right after SDL_Init: a DualSense on Bluetooth showed up only at the input thread's
+    // first scan, so the prompts stayed Switch. Poll for up to PAD_WAIT_MS until one is listed (a start without a pad
+    // waits that long once).
+    enum { PAD_WAIT_MS = 800, PAD_POLL_MS = 20 };
+    int n = 0, sony = 0, waited = 0;
+    char seen[160] = "";
+    for (;;) {
+        SDL_UpdateGamepads();
+        SDL_JoystickID *ids = SDL_GetGamepads(&n);
+        for (int i = 0; ids && i < n && !sony; i++) {
+            SDL_GamepadType t = SDL_GetGamepadTypeForID(ids[i]);
+            sony = t == SDL_GAMEPAD_TYPE_PS3 || t == SDL_GAMEPAD_TYPE_PS4 || t == SDL_GAMEPAD_TYPE_PS5;
+            const char *name = SDL_GetGamepadNameForID(ids[i]);
+            snprintf(seen, sizeof seen, "%s", name ? name : "?");
+        }
+        SDL_free(ids);
+        if (n > 0 || waited >= PAD_WAIT_MS) break;
+        plat_sleep_ms(PAD_POLL_MS);
+        waited += PAD_POLL_MS;
+    }
+    if (sony) rt_log("input: PlayStation pad at start: \"%s\" (after %d ms)", seen, waited);
+    else if (n) rt_log("input: no PlayStation pad at start (\"%s\"): Switch prompts", seen);
+    else rt_log("input: no gamepad listed within %d ms of start: Switch prompts", waited);
+    // The probe runs on whichever thread opens the RomFS first, and SDL ties its device-notification window to the
+    // thread that initialised the subsystem: release it so start() initialises it again on the input thread.
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    return sony;
 }
 
 int input_pad_label(int pad_id) {
@@ -718,7 +1014,9 @@ int input_capture(int reset, int *id) {
     plat_mutex_lock(&lock);
     if (!state) start();
     if (state == 1) pad_physical(p);
+    int toggle = pad_fullscreen_take();
     plat_mutex_unlock(&lock);
+    if (toggle) gfx_window_toggle_fullscreen();
     int got = INPUT_CAPTURE_NONE;
     if (!reset) {
         if (esc && !prev_esc) got = INPUT_CAPTURE_CANCEL;
@@ -737,13 +1035,48 @@ int input_rumble_triggers_enabled(void) {
     return cfg_bool("TOTK_RUMBLE_TRIGGERS");
 }
 
+// Under lock: the open pad is a Switch 2 controller over Bluetooth (switch2.c's virtual gamepad), which takes the game's
+// vibration as HD samples through input_rumble_stream and nothing from the two paths below. Checked on each call: the
+// controller registers its gamepad only once it is attached, after SDL may already have listed it.
+static int pad_s2(void) {
+    return state == 1 && pad && switch2_owns(SDL_GetGamepadID(pad));
+}
+
+int input_rumble_stream(const float v[2][4]) {
+    int ok = 0;
+    plat_mutex_lock(&lock);
+    if (pad_s2()) ok = switch2_rumble_hd(SDL_GetGamepadID(pad), v);
+    plat_mutex_unlock(&lock);
+    return ok;
+}
+
+// Under lock: the open pad takes HD packets (a Switch pad, TOTK_RUMBLE_HD not off).
+static int pad_hd(void) {
+    return state == 1 && pad && pad_switch && !hd_failed && strcmp(cfg_value("TOTK_RUMBLE_HD"), "off") != 0 && !pad_s2();
+}
+
+int input_rumble_hd(const float v[2][4], uint32_t ms) {
+    int ok = 0;
+    plat_mutex_lock(&lock);
+    if (pad_hd()) {
+        // SDL's driver stamps the packet counter itself; the packet has no subcommand byte.
+        uint8_t pkt[10];
+        const float zero[2][4] = { { 0, 160, 0, 320 }, { 0, 160, 0, 320 } };
+        switch_rumble_packet(ms ? v : zero, pkt);
+        ok = SDL_SendGamepadEffect(pad, pkt, sizeof pkt);
+        if (ok && ms) hd_sent = 1;
+    }
+    plat_mutex_unlock(&lock);
+    return ok;
+}
+
 int input_rumble(uint16_t low, uint16_t high, uint32_t ms) {
     int ok = 0;
     static int triggers = -1;
     static unsigned seen;
     if (triggers < 0 || seen != cfg_version()) seen = cfg_version(), triggers = input_rumble_triggers_enabled();
     plat_mutex_lock(&lock);
-    if (state == 1 && pad && pad_rumble) {
+    if (state == 1 && pad && pad_rumble && !pad_hd() && !pad_s2()) {
         ok = SDL_RumbleGamepad(pad, low, high, ms);
         if (triggers) SDL_RumbleGamepadTriggers(pad, high, high, ms);   // unsupported pads return false: ignored
     }
@@ -831,4 +1164,18 @@ void input_motion_start(void) {
         }
     }
     plat_mutex_unlock(&lock);
+}
+
+int input_pad_info(InputPadInfo *info) {
+    memset(info, 0, sizeof *info);
+    plat_mutex_lock(&lock);
+    int connected = pad && SDL_GamepadConnected(pad);
+    if (connected) {
+        info->id = SDL_GetGamepadID(pad);
+        info->type = SDL_GetGamepadType(pad);
+        const char *name = SDL_GetGamepadName(pad);
+        snprintf(info->name, sizeof info->name, "%s", name ? name : "Controller");
+    }
+    plat_mutex_unlock(&lock);
+    return connected;
 }

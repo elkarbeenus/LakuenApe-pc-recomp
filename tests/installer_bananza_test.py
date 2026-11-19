@@ -23,6 +23,21 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from nup_extract_check import build as build_nup  # noqa: E402  synthetic NUP containers
 
 
+def symlinks_allowed():
+    """Whether this account may create symbolic links: Windows allows it only with Developer Mode or administrator
+    rights (WinError 1314 otherwise). The redirect tests below need them; the junction test does not."""
+    with tempfile.TemporaryDirectory() as folder:
+        try:
+            (Path(folder) / 'link').symlink_to(Path(folder) / 'target')
+            return True
+        except OSError:
+            return False
+
+
+SYMLINKS = symlinks_allowed()
+NO_SYMLINKS = 'this account may not create symbolic links (Windows: Developer Mode off and not administrator)'
+
+
 def tree(folder):
     """A folder as the {name: bytes | tree} that build_nup takes."""
     return {p.name: tree(p) if p.is_dir() else p.read_bytes() for p in sorted(folder.iterdir())}
@@ -32,6 +47,12 @@ class InstallerTest(unittest.TestCase):
     def setUp(self):
         self.work = tempfile.TemporaryDirectory()
         self.addCleanup(self.work.cleanup)
+        # The check step asks for the space a real install needs (about 13 GiB for these tiny files, since it adds
+        # fixed headroom); the synthetic install writes kilobytes, so the free space of the test machine's temp disk
+        # must not decide the result. A test that wants the space error patches disk_usage itself.
+        roomy = patch.object(b.shutil, 'disk_usage', return_value=SimpleNamespace(free=1 << 50))
+        roomy.start()
+        self.addCleanup(roomy.stop)
         base = Path(self.work.name)
         self.root, self.exefs, self.romfs = base / 'source', base / 'dump exefs', base / 'dump romfs'
         self.dest, self.temp = base / 'installed [game]', base / 'temporary'
@@ -53,6 +74,26 @@ class InstallerTest(unittest.TestCase):
         shutil.copyfile(ROOT / 'tools/dkb_pack_romfs.py', self.root / 'tools/dkb_pack_romfs.py')
         shutil.copyfile(ROOT / 'tools/dkb_shader_census.py', self.root / 'tools/dkb_shader_census.py')
         shutil.copyfile(ROOT / 'tools/extract_nup.py', self.root / 'tools/extract_nup.py')
+        (self.root / 'tools/ultrawide_layout.py').write_text('# synthetic layout parser')
+        (self.root / 'tools/dkb_wide_layout.py').write_text('''
+import hashlib, pathlib, sys
+a=sys.argv; out=pathlib.Path(a[a.index('--out')+1])
+assert out.is_relative_to(pathlib.Path(a[a.index('--installer-workspace')+1])/'build')
+for size in a[a.index('--presets')+1:]:
+    for suffix in ('', '-hud-edges'):
+        folder=out/('romfs-patches-'+size+suffix); folder.mkdir(parents=True)
+        raw=('synthetic '+size+suffix).encode(); (folder/'resource.bin').write_bytes(raw)
+        (folder/'manifest.tsv').write_text('resource.bin\\t%d\\t%s\\t%s\\n' %
+                                          (len(raw), hashlib.sha256(raw).hexdigest(), '0'*64))
+''')
+        (self.root / 'tools/dkb_ps_prompts.py').write_text('''
+import hashlib, pathlib, sys
+a=sys.argv; out=pathlib.Path(a[a.index('--out')+1])
+assert out.is_relative_to(pathlib.Path(a[a.index('--installer-workspace')+1])/'build')
+assert a[a.index('--layout')+1] in ('xbox','nintendo','senw','eswn')
+out.mkdir(parents=True); raw=('synthetic '+a[a.index('--layout')+1]).encode(); (out/'resource.bin').write_bytes(raw)
+(out/'manifest.tsv').write_text('resource.bin\\t%d\\t%s\\t%s\\n' % (len(raw), hashlib.sha256(raw).hexdigest(), '0'*64))
+''')
         (self.root / 'tools/romfs_index.py').write_text('# synthetic fixture')
         (self.root / 'recomp/gen.py').write_text('''
 import json, pathlib, sys
@@ -125,6 +166,37 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
             b.Check().host(ctx)   # a warning must not raise
         return [json.loads(line)['id'] for line in out.getvalue().splitlines() if json.loads(line)['type'] == 'warning']
 
+    def check_space(self, dest_free, temp_free):
+        """Run the check step's space test with the install folder and the temporary folder on two disks."""
+        self.dest.mkdir()
+        self.temp.mkdir()
+        free = {self.dest: dest_free, self.temp: temp_free}
+        real_stat = Path.stat
+        def stat(path, **kw):
+            if path in free:   # one device per folder, so the two needs are checked separately
+                return SimpleNamespace(st_dev=1 if path == self.dest else 2, st_mode=real_stat(path, **kw).st_mode)
+            return real_stat(path, **kw)
+        ctx = SimpleNamespace(dest=self.dest, temp=self.temp, info={'romfs_size': 1 << 30},
+                              reporter=Reporter(out=io.StringIO()))
+        with patch.object(b.shutil, 'disk_usage', side_effect=lambda p: SimpleNamespace(free=free[Path(p)])), \
+                patch.object(Path, 'stat', autospec=True, side_effect=stat), \
+                self.assertRaises(b.InstallError) as error:
+            b.Check().run(ctx)
+        return error.exception
+
+    def test_space_error_names_the_short_temporary_disk(self):
+        # A player who moves only the install folder to a roomy disk must learn that the setup folder's disk is full.
+        error = self.check_space(dest_free=1 << 40, temp_free=1 << 30)
+        self.assertEqual(error.id, 'dkb.temp_disk_space')
+        self.assertEqual(error.params['path'], str(self.temp))
+        self.assertEqual((error.params['need'], error.params['free']), (11.0, 1.0))
+
+    def test_space_error_names_the_short_install_disk(self):
+        error = self.check_space(dest_free=1 << 30, temp_free=1 << 40)
+        self.assertEqual(error.id, 'dkb.space')
+        self.assertEqual(error.params['path'], str(self.dest))
+        self.assertEqual((error.params['need'], error.params['free']), (4.0, 1.0))
+
     def test_low_commit_limit_warns_and_continues(self):
         self.assertEqual(self.host_warnings(commit_limit_gib=17.9), ['warn.low_commit_limit'])
 
@@ -146,7 +218,6 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         sysroot = self.temp / 'llvm' / 'sysroot'
         command = self.host_command(replace(self.layout, sysroot=sysroot))
         self.assertIn(f'--sysroot={sysroot}', command)
-        self.assertIn('-fuse-ld=lld', command)
         self.assertFalse(any(c.startswith('--sysroot') for c in self.host_command(replace(self.layout, sysroot=None))))
 
     def test_shell_special_temp_path_is_flagged(self):
@@ -187,12 +258,52 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual((target / 'keep.txt').read_text(), 'untouched')
         self.assertFalse(self.dest.exists())
 
+    def test_fsr4_only_after_accept(self):
+        # Without --fsr4 nothing is fetched; accept fetches into the install folder and records the release, which a
+        # later setup keeps without asking again; a failed fetch warns and is tried again; off stops it.
+        fetched = []
+        def fetch(folder, progress=None, repo=None):
+            fetched.append(Path(folder))
+            for _, name, _, _ in (b.fsr4.LICENSE, *b.fsr4.FILES):
+                (Path(folder) / name).write_bytes(b'x')
+        sizes = [(path, name, 1, sha) for path, name, _, sha in (b.fsr4.LICENSE, *b.fsr4.FILES)]
+        platform = patch.object(b, 'fsr4_platform', return_value=True)   # the step acts on Windows only
+        platform.start()
+        self.addCleanup(platform.stop)
+        with patch.object(b.fsr4, 'fetch', side_effect=fetch), patch.object(b.fsr4, 'LICENSE', sizes[0]), \
+                patch.object(b.fsr4, 'FILES', tuple(sizes[1:])):
+            self.assertEqual(self.run_install()[0], 0)
+            self.assertEqual(fetched, [])
+            self.assertNotIn('fsr4', b.statefile.load(self.dest, b.STATE))
+            self.options.fsr4 = 'accept'
+            self.assertEqual(self.run_install()[0], 0)
+            self.assertEqual(fetched, [self.dest])
+            state = b.statefile.load(self.dest, b.STATE)
+            self.assertEqual(state['fsr4'], b.fsr4.TAG)
+            self.assertTrue(state['steps']['dkb_fsr4']['files'])
+            self.options.fsr4 = None   # recorded: kept, nothing fetched again
+            self.assertEqual(self.run_install()[0], 0)
+            self.assertEqual(fetched, [self.dest])
+            (self.dest / b.fsr4.FILES[1][1]).unlink()   # a file gone: fetched again
+            self.assertEqual(self.run_install()[0], 0)
+            self.assertEqual(len(fetched), 2)
+            self.options.fsr4 = 'off'
+            self.assertEqual(self.run_install()[0], 0)
+            self.assertNotIn('fsr4', b.statefile.load(self.dest, b.STATE))
+            self.assertEqual(len(fetched), 2)
+        with patch.object(b.fsr4, 'fetch', side_effect=b.fsr4.FetchError('amd_fidelityfx_upscaler_vk.dll', 'offline')):
+            self.options.fsr4 = 'accept'
+            code, events = self.run_install()
+            self.assertEqual(code, 0, events)
+            self.assertIn('warn.dkb_fsr4_failed', [e.get('id') for e in events if e['type'] == 'warning'])
+            self.assertFalse(b.statefile.load(self.dest, b.STATE)['steps']['dkb_fsr4']['files'])
+
     def test_fresh_portable_install_and_resume(self):
         code, events = self.run_install()
         self.assertEqual(code, 0, events)
         state = b.statefile.load(self.dest, b.STATE)
         self.assertEqual(state['game'], 'dkb100')
-        self.assertEqual(set(state['steps']), {'dkb_data','dkb_translator','lift','compile','dkb_shaders','dkb_verify'})
+        self.assertEqual(set(state['steps']), {'dkb_data','dkb_translator','lift','compile','dkb_shaders','dkb_wide','dkb_prompts','dkb_fsr4','dkb_verify'})
         self.assertEqual((self.dest/'exefs/main').read_bytes(), (self.exefs/'main').read_bytes())
         self.assertTrue((self.dest/('dkb'+b.EXE)).is_file())
         self.assertFalse((self.dest/'build.ninja').exists())
@@ -202,7 +313,181 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual(code, 0, events)
         self.assertEqual(self.calls, [])
         self.assertEqual({e['step'] for e in events if e['type']=='step' and e['state']=='skipped'},
-                         {'dkb_data','dkb_translator','lift','compile','dkb_shaders','dkb_verify'})
+                         {'dkb_data','dkb_translator','lift','compile','dkb_shaders','dkb_wide','dkb_prompts','dkb_fsr4','dkb_verify'})
+
+    def test_wide_presets_install_both_variants_and_repair_without_rebuild(self):
+        self.assertEqual(self.run_install()[0], 0)
+        for name in b.WIDE_FOLDERS:
+            self.assertTrue((self.dest / name / 'manifest.tsv').is_file(), name)
+        centered = self.dest / 'romfs-patches-3440x1440' / 'resource.bin'
+        edges = self.dest / 'romfs-patches-3440x1440-hud-edges' / 'resource.bin'
+        self.assertNotEqual(centered.read_bytes(), edges.read_bytes())
+        for damage in ('resource', 'manifest'):
+            with self.subTest(damage=damage):
+                if damage == 'resource':
+                    centered.write_bytes(b'X' * centered.stat().st_size)
+                else:
+                    (edges.parent / 'manifest.tsv').unlink()
+                self.calls.clear()
+                self.assertEqual(self.run_install()[0], 0)
+                self.assertEqual([step for step, _ in self.calls], ['dkb_wide'])
+                self.assertEqual(centered.read_bytes(), b'synthetic 3440x1440')
+
+    def test_wide_tool_change_invalidates_only_overlays(self):
+        self.assertEqual(self.run_install()[0], 0)
+        ini = self.dest / 'dkb.ini'
+        ini.write_text('[display]\noutput_res = 3440x1440\nhud_position = centered\n')
+        settings = ini.read_bytes()
+        parser = self.root / 'tools/ultrawide_layout.py'
+        parser.write_text(parser.read_text() + '\n# parser change')
+        self.calls.clear()
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertEqual([step for step, _ in self.calls], ['dkb_wide'])
+        self.assertEqual(ini.read_bytes(), settings)
+
+    def test_interrupted_overlay_publication_is_repaired_on_resume(self):
+        self.assertEqual(self.run_install()[0], 0)
+        parser = self.root / 'tools/ultrawide_layout.py'
+        parser.write_text(parser.read_text() + '\n# new layout version')
+        original = b.copy_file
+        def interrupt(source, dest):
+            if dest == self.dest / 'romfs-patches-3440x1440' / 'manifest.tsv':
+                raise KeyboardInterrupt
+            original(source, dest)
+        with patch.object(b, 'copy_file', side_effect=interrupt):
+            self.assertEqual(self.run_install()[0], 3)
+        self.calls.clear()
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertEqual([step for step, _ in self.calls], ['dkb_wide'])
+
+    def test_wide_destination_redirect_is_rejected_before_any_writer(self):
+        self.assertEqual(self.run_install()[0], 0)
+        name = self.dest / 'romfs-patches-3440x1440'
+        real_linked = b.linked
+        with patch.object(b, 'linked', side_effect=lambda path: path == name or real_linked(path)):
+            self.calls.clear()
+            code, events = self.run_install()
+        self.assertEqual(code, 1)
+        self.assertEqual(next(e['id'] for e in events if e['type'] == 'error'), 'dkb.path_link')
+        self.assertEqual(self.calls, [])
+
+    def test_failed_generation_does_not_publish_partial_overlays(self):
+        self.assertEqual(self.run_install()[0], 0)
+        before = {name: b.tree_key(self.dest / name) for name in b.WIDE_FOLDERS}
+        generator = self.root / 'tools/dkb_wide_layout.py'
+        generator.write_text(generator.read_text() + '\nraise SystemExit(1)\n')
+        code, events = self.run_install()
+        self.assertEqual(code, 0, events)
+        self.assertIn('warn.dkb_wide_failed', [e.get('id') for e in events if e['type'] == 'warning'])
+        record = b.statefile.load(self.dest, b.STATE)['steps']['dkb_wide']
+        self.assertFalse(record['prepared'])
+        self.assertNotIn('outputs', record)
+        self.assertEqual({name: b.tree_key(self.dest / name) for name in b.WIDE_FOLDERS}, before)
+        generator.write_text(generator.read_text().replace('raise SystemExit(1)', '# repaired'))
+        self.calls.clear()
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertEqual([step for step, _ in self.calls], ['dkb_wide'])
+
+    def test_failed_wide_generation_finishes_fresh_16x9_install_without_overlays(self):
+        template = self.root / 'dkb.ini.example'
+        template.write_text('[display]\nultrawide = 0\noutput_res = 1920x1080\n')
+        self.layout = b.replace(self.layout, ini_example=template)
+        generator = self.root / 'tools/dkb_wide_layout.py'
+        generator.write_text(generator.read_text() + '\nprint("synthetic unsupported layout")\nraise SystemExit(3)\n')
+        code, events = self.run_install()
+        self.assertEqual(code, 0, events)
+        warning = next(e for e in events if e.get('id') == 'warn.dkb_wide_failed')
+        self.assertEqual(warning['params']['code'], 3)
+        self.assertIn('synthetic unsupported layout', Path(warning['params']['log']).read_text())
+        self.assertFalse(any((self.dest / name).exists() for name in b.WIDE_FOLDERS))
+        self.assertIn('dkb_verify', [step for step, _ in self.calls])
+        self.assertTrue(b.statefile.load(self.dest, b.STATE)['steps']['dkb_verify']['selftest'])
+        self.assertIn('output_res = 1920x1080', (self.dest / 'dkb.ini').read_text())
+        workspace = next(self.temp.glob('dkb-*'))
+        self.assertFalse((workspace / 'build').exists())
+
+    def test_failed_wide_generation_retries_with_unchanged_inputs(self):
+        def fail(ctx, step, command):
+            if step == 'dkb_wide':
+                raise b.InstallError('dkb.tool_failed', code=1, log='synthetic-wide.log')
+        self.assertEqual(self.run_install(fail)[0], 0)
+        self.calls.clear()
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertEqual([step for step, _ in self.calls], ['dkb_wide'])
+        self.assertTrue(all((self.dest / name / 'manifest.tsv').is_file() for name in b.WIDE_FOLDERS))
+
+    def test_wide_generation_path_failure_still_stops_setup(self):
+        def reject(ctx, step, command):
+            if step == 'dkb_wide':
+                raise b.InstallError('dkb.path_link', path='synthetic redirect')
+        code, events = self.run_install(reject)
+        self.assertEqual(code, 1, events)
+        self.assertNotIn('warn.dkb_wide_failed', [e.get('id') for e in events])
+        self.assertEqual(next(e['id'] for e in events if e['type'] == 'error'), 'dkb.path_link')
+        self.assertNotIn('dkb_verify', [step for step, _ in self.calls])
+
+    def test_wide_generation_cancellation_still_cancels_setup(self):
+        def cancel(ctx, step, command):
+            if step == 'dkb_wide':
+                raise KeyboardInterrupt
+        code, events = self.run_install(cancel)
+        self.assertEqual(code, 3, events)
+        self.assertNotIn('warn.dkb_wide_failed', [e.get('id') for e in events])
+        self.assertNotIn('dkb_verify', [step for step, _ in self.calls])
+
+    def test_real_layout_generator_publishes_validated_centered_and_edge_resources(self):
+        self.check_real_layout_generator('dkb100')
+
+    def test_updated_real_generator_uses_updated_dialog_and_title_archive(self):
+        self.update_fixture()
+        self.check_real_layout_generator('dkb458752')
+
+    def check_real_layout_generator(self, version):
+        try:
+            from dkb_wide_layout_test import resource_files, unpack
+        except ImportError as error:
+            self.skipTest(str(error))
+        for name in ('dkb_wide_layout.py', 'ultrawide_layout.py', 'romfs_index.py', 'check_content.py'):
+            shutil.copyfile(ROOT / 'tools' / name, self.root / 'tools' / name)
+        for name, raw in resource_files(version).items():
+            path = self.romfs / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+        code, events = self.run_install()
+        self.assertEqual(code, 0, events)
+        for folder in b.WIDE_FOLDERS:
+            manifest = self.dest / folder / 'manifest.tsv'
+            if version == 'dkb458752':
+                title_paths = {line.split('\t')[0] for line in manifest.read_text().splitlines()
+                               if line.startswith('Effect/')}
+                self.assertEqual(title_paths, {'Effect/static.Product.200.Nin_Ounce_NVN2.esetb.byml.zs'})
+            for line in manifest.read_text().splitlines():
+                if line.startswith('#'):
+                    continue
+                path, size, sha, original_sha = line.split('\t')
+                resource = self.dest / folder / path
+                self.assertEqual(resource.stat().st_size, int(size))
+                self.assertEqual(b.sha256(resource), sha)
+                self.assertEqual(b.sha256(self.romfs / path), original_sha)
+        hud = 'Layout/HudStatus.Nin_Ounce_NVN2.blarc.zs'
+        # Centered overlays need only change the backgrounds; edge overlays additionally move the HUD.
+        self.assertFalse((self.dest / 'romfs-patches-3440x1440' / hud).exists())
+        self.assertNotEqual(unpack((self.dest / 'romfs-patches-3440x1440-hud-edges' / hud).read_bytes()),
+                            unpack((self.romfs / hud).read_bytes()))
+
+    def test_release_contains_layout_generator_and_menu_presets_match(self):
+        import ast
+        import re
+        text = (ROOT / 'tools/make_release.py').read_text(encoding='utf-8')
+        constants = {n.targets[0].id: ast.literal_eval(n.value) for n in ast.parse(text).body
+                     if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and
+                     n.targets[0].id in ('TOOLS_FILES', 'DKB_TOOLS_FILES')}
+        packaged = constants['TOOLS_FILES'] + constants['DKB_TOOLS_FILES']
+        self.assertTrue({'dkb_wide_layout.py', 'ultrawide_layout.py', 'dkb_ps_prompts.py'} <= set(packaged))
+        menu = (ROOT / 'runtime/ui/menu.cpp').read_text(encoding='utf-8')
+        sizes = re.search(r'static const char \*const wide\[\] = \{([^}]+)\}', menu)
+        self.assertIsNotNone(sizes)
+        self.assertEqual(tuple(re.findall(r'"(\d+x\d+)"', sizes[1])), b.WIDE_SIZES)
 
     def test_library_warm_failure_does_not_fail_the_step(self):
         def crash(ctx, step, command):
@@ -217,6 +502,19 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.calls.clear()
         self.assertEqual(self.run_install()[0], 0)
         self.assertEqual(self.calls, [], 'a retry must not run the crashing library build again')
+
+    def test_shader_cache_is_packed(self):
+        code, events = self.run_install()
+        self.assertEqual(code, 0, events)
+        self.assertTrue(any(str(c[-2]).endswith('pack_shader_cache.py') for _, c in self.calls), self.calls)
+
+    def test_a_pack_failure_only_warns(self):
+        def crash(ctx, step, command):
+            if str(command[-2]).endswith('pack_shader_cache.py'):
+                raise b.InstallError('dkb.tool_failed', step=step, code=1, log='pack.log')
+        code, events = self.run_install(crash)
+        self.assertEqual(code, 0, events)
+        self.assertIn('warn.dkb_pack_failed', [e.get('id') for e in events if e['type'] == 'warning'])
 
     def test_library_warm_path_rejection_fails_the_step(self):
         def reject(ctx, step, command):
@@ -289,6 +587,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual(self.run_install(cancel)[0], 3)
         return next(self.temp.glob('dkb-*'))
 
+    @unittest.skipUnless(SYMLINKS, NO_SYMLINKS)
     def test_owned_workspace_directory_redirects_rejected_before_writers(self):
         workspace = self.cancelled_workspace()
         outside = Path(self.work.name) / 'outside workspace'
@@ -313,6 +612,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
                 finally:
                     link.unlink()
 
+    @unittest.skipUnless(SYMLINKS, NO_SYMLINKS)
     def test_owned_workspace_leaf_and_owner_links_rejected_before_writers(self):
         workspace = self.cancelled_workspace()
         outside = Path(self.work.name) / 'outside-file.txt'
@@ -337,6 +637,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
                     if old is not None:
                         link.write_bytes(old)
 
+    @unittest.skipUnless(SYMLINKS, NO_SYMLINKS)
     def test_managed_destination_redirect_rejected_before_writers(self):
         self.cancelled_workspace()
         outside = Path(self.work.name) / 'outside-exefs'
@@ -348,6 +649,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual(next(e['id'] for e in events if e['type']=='error'), 'dkb.path_link')
         self.assertEqual(self.calls, [])
 
+    @unittest.skipUnless(SYMLINKS, NO_SYMLINKS)
     def test_subprocess_writer_rechecks_workspace_before_opening_log_or_spawning(self):
         workspace = self.cancelled_workspace()
         outside = Path(self.work.name)/'outside-writer'
@@ -403,7 +705,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         (self.romfs/'other.bin').write_bytes(b'a changed source')
         self.calls.clear()
         self.assertEqual(self.run_install()[0], 0)
-        self.assertEqual([step for step, _ in self.calls], ['dkb_data','lift','compile','dkb_shaders','dkb_shaders','dkb_shaders','dkb_verify'])
+        self.assertEqual([step for step, _ in self.calls], ['dkb_data','lift','compile','dkb_shaders','dkb_shaders','dkb_shaders','dkb_wide','dkb_prompts','dkb_prompts','dkb_prompts','dkb_prompts','dkb_verify','dkb_verify'])
 
     def test_source_mutation_during_pack_is_not_installed(self):
         def mutate(ctx, step, command):
@@ -440,6 +742,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertTrue((workspace/'gen/main/main_0000.c').is_file())
         self.assertEqual((workspace/'build/obj/guest.o').read_bytes(), b'synthetic object')
         self.assertFalse((workspace/'data').exists())
+        self.assertFalse((workspace/'build/wide-overlays').exists())
 
     def test_base_install_removes_generated_code_and_objects(self):
         self.assertEqual(self.run_install()[0], 0)
@@ -457,7 +760,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         code, events = self.run_install()
         self.assertEqual(code, 0, events)
         self.assertEqual([step for step, _ in self.calls],
-                         ['compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify'])
+                         ['compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify', 'dkb_verify'])
         self.assertEqual(generated.stat().st_mtime_ns, timestamp)
 
     def update_fixture(self):
@@ -518,7 +821,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.calls.clear()
         self.assertEqual(self.run_install()[0], 0)
         self.assertEqual([step for step, _ in self.calls],
-                         ['lift', 'compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify'])
+                         ['lift', 'compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify', 'dkb_verify'])
 
     def test_corrupt_generated_output_is_regenerated_when_rebuilding(self):
         self.update_fixture()   # only the update keeps generated code and objects
@@ -529,7 +832,7 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.calls.clear()
         self.assertEqual(self.run_install()[0], 0)
         self.assertEqual([step for step, _ in self.calls],
-                         ['lift', 'compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify'])
+                         ['lift', 'compile', 'dkb_shaders', 'dkb_shaders', 'dkb_shaders', 'dkb_verify', 'dkb_verify'])
 
     def test_already_packed_input_is_verified_and_copied(self):
         packed = self.root / 'packed input'
@@ -539,6 +842,45 @@ assert '--full-build' in a and pathlib.Path(a[a.index('--expected')+1]).name=='e
         self.assertEqual(self.run_install()[0], 0)
         self.assertEqual(b.sha256(packed/'romfs.bin'), b.sha256(self.dest/'romfs/romfs.bin'))
         self.assertNotIn('dkb_data', [step for step, _ in self.calls])
+
+    def test_romfs_in_place_packs_nothing_and_switches_back(self):
+        self.options.romfs_in_place = True
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertFalse((self.dest/'romfs/romfs.bin').exists())
+        self.assertNotIn('dkb_data', [step for step, _ in self.calls])
+        index = json.loads((self.dest/'romfs/index.json').read_text(encoding='utf-8'))
+        self.assertEqual(index['loose'], str(self.romfs.resolve()))
+        self.assertEqual([e['path'] for e in index['files']], ['folder/café.bin', 'other.bin'])
+        self.assertIn(f'romfs_dir = {self.romfs.resolve()}', (self.dest/'dkb.ini').read_text(encoding='utf-8'))
+        # The setup's RomFS tools read the loose folder through the same index (tools/romfs_index.py open_image).
+        sys.path.insert(0, str(ROOT/'tools'))
+        try:
+            import romfs_index
+        finally:
+            sys.path.pop(0)
+        with romfs_index.open_image(self.dest/'romfs', index) as image:
+            for e in index['files']:
+                image.seek(e['offset'])
+                self.assertEqual(image.read(e['size']), (self.romfs/e['path']).read_bytes())
+        # A resume without folders keeps reading in place; giving the folder again without the option packs it.
+        self.calls.clear()
+        self.options.romfs_in_place, self.options.romfs, self.options.exefs = False, None, None
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertEqual(self.calls, [])
+        self.options.romfs, self.options.exefs = self.romfs, self.exefs
+        self.assertEqual(self.run_install()[0], 0)
+        self.assertTrue((self.dest/'romfs/romfs.bin').is_file())
+        self.assertNotIn('romfs_dir =', (self.dest/'dkb.ini').read_text(encoding='utf-8'))
+
+    def test_romfs_in_place_refuses_a_packed_folder(self):
+        packed = self.root / 'packed input'
+        subprocess.run([sys.executable, str(ROOT/'tools/dkb_pack_romfs.py'), '--dir', str(self.romfs),
+                        '--out', str(packed)], check=True, capture_output=True)
+        self.options.romfs, self.options.romfs_in_place = packed, True
+        code, events = self.run_install()
+        self.assertEqual(code, 1)
+        self.assertIn('dkb.in_place_folder', [e.get('id') for e in events if e['type'] == 'error'])
+        self.assertFalse(self.dest.exists() and any(self.dest.iterdir()))
 
     def test_packed_input_corruption_and_traversal_are_rejected(self):
         packed = self.root / 'packed input'

@@ -1,28 +1,25 @@
 name: DKB setup zip
 
-# Builds DKB-Setup-<version>-windows.zip (the portable tools, the source and the installer GUI), the Linux and macOS
-# source packages DKB-Setup-<version>-linux-x86_64.tar.gz and -macos-arm64.zip (tools/make_release_posix.py) and the Linux
-# setup LakuenApeRecomp-<version>-x86_64.AppImage (tools/make_release_linux.py --game dkb), with no game data.
-# A manual run can build the AppImage alone (appimage_only).
+# Builds DKB-Setup-<version>-windows.zip (the portable tools, the source and the installer GUI) and the Linux and macOS
+# source packages DKB-Setup-<version>-linux-x86_64.tar.gz and -macos-arm64.zip (tools/make_release_posix.py), and the self-contained Linux AppImage, with no game data.
+# Beside the Windows zip, make_release.py writes DKB-Launcher.exe and dkb-release.txt, the manifest the launcher updates
+# from (docs/installer.md, "Launcher and updates"); the release must carry all three under these names.
 # A manual run or a push to a tag only uploads the zips as workflow artifacts; a tag named v* also publishes them as a
-# GitHub release with the notes of .github/release-notes.md (0.x is experimental, see issue #85).
+# GitHub release with the notes of .github/release-notes.md (0.x is experimental, see issue #85): v0.4.2 as the latest
+# release, v0.4.2-rc1 as a pre-release, which the launcher never offers (tools/check_release.py).
 
 on:
   workflow_dispatch:
-    inputs:
-      appimage_only:
-        description: "Build only LakuenApeRecomp-<version>-x86_64.AppImage"
-        type: boolean
-        default: false
   push:
     tags: ["v*"]
 
+# The build jobs only read the repository; only the publish job, which runs nothing but GitHub's own checkout and
+# artifact download, may write a release.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   zip:
-    if: ${{ !inputs.appimage_only }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -42,11 +39,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: DKB-Setup-windows
-          path: build/release/DKB-Setup-*-windows.zip
+          path: |
+            build/release/DKB-Setup-*-windows.zip
+            build/release/DKB-Launcher.exe
+            build/release/dkb-release.txt
           if-no-files-found: error
 
   linux:
-    if: ${{ !inputs.appimage_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -88,7 +87,6 @@ jobs:
           if-no-files-found: error
 
   macos:
-    if: ${{ !inputs.appimage_only }}
     runs-on: macos-latest   # Apple silicon; macos-14 is not offered to this repository
     timeout-minutes: 30
     steps:
@@ -121,45 +119,55 @@ jobs:
 
   appimage:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # make_release.py stamps the commit into the version
-      - name: Free disk space   # the LLVM release archive and the sniper SDK need several GB
-        run: sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-dotnet@v4   # build_xlate.py links totk_xlate with NativeAOT against the sniper sysroot
-        with:
-          dotnet-version: "10.0.x"
-      - name: Install the build dependencies
+      - name: Fetch refs
+        run: sh tools/fetch_refs.sh
+      - name: Fetch the release toolchain
+        run: python tools/make_release_linux.py --fetch-toolchain --out build/ci-toolchain
+      - name: Build the self-contained AppImage in the pinned container (as in dkb-linux.yml)
         run: |
-          sudo apt-get update
-          # make and pkg-config build zstd and Tcl/Tk against the sysroot; xvfb and the fonts let the window selftest run
-          sudo apt-get install -y make pkg-config binutils xvfb xauth fonts-dejavu-core
-          python -m pip install pillow   # runtime/dkb.ico -> totk.png
-      - run: python tools/check_content.py
-      - run: xvfb-run -a python tools/make_release_linux.py --game dkb --appimage   # also runs check_content over the folder
+          python tools/make_release_linux.py --game dkb --stub             --out build/release/DKB-Setup-linux             --appimage "build/release/DKB-Setup-$(cat VERSION)-x86_64.AppImage"             --ci-container
+      - name: Smoke-test the AppImage
+        env:
+          DKB_SETUP_HOME: ${{ runner.temp }}/dkb-setup
+        run: xvfb-run -a ./build/release/DKB-Setup-*-x86_64.AppImage --appimage-extract-and-run --selftest
       - uses: actions/upload-artifact@v4
         with:
-          name: LakuenApeRecomp-AppImage
-          path: build/release/LakuenApeRecomp-*-x86_64.AppImage
+          name: DKB-Setup-appimage
+          path: build/release/DKB-Setup-*-x86_64.AppImage
           if-no-files-found: error
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [zip, linux, macos, appimage]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # gh release create
     steps:
       - uses: actions/checkout@v4   # for .github/release-notes.md
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Check the launcher manifest against the tag and the files
+        id: manifest
+        run: |
+          # The launcher installs the release whose dkb-release.txt names its own tag, and checks the files' size and
+          # SHA-256 against it: they must be the bytes published here. A pre-release tag (v0.4.2-rc1) is published as
+          # a pre-release, which no launcher offers (tools/check_release.py).
+          cat dist/dkb-release.txt
+          kind=$(python3 tools/check_release.py dist "$GITHUB_REF_NAME") || { echo "$kind"; exit 1; }
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          KIND: ${{ steps.manifest.outputs.kind }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/DKB-Setup-* --repo "$GITHUB_REPOSITORY" --latest --title "DKB Recomp $GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes
+          gh release create "$GITHUB_REF_NAME" dist/DKB-Setup-* dist/DKB-Launcher.exe dist/dkb-release.txt --repo "$GITHUB_REPOSITORY" "--$KIND" --title "DKB Recomp $GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes

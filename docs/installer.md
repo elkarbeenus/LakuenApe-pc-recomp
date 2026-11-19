@@ -31,6 +31,18 @@ SHA-256 is in the superblock. `tools/extract_nup.py` reads it (an independent re
   checking every file against its SHA-256 record. The image is then read back against the preflight list as for loose
   input. The container is not hashed as a whole; a change after preflight shows up as a failed record check.
 
+### .nx input
+
+`--nup` (and the window's picker) also takes a `.nx` archive, the [NXFormat](https://github.com/fab918/nxformat) container
+(MIT, `docs/SPEC.md`). `tools/extract_nx.py`, written from the specification, presents it to `extract_nup.py` like a
+`.nup`: each snapshot of the first application is a package (base, update, or add-on content that carries its title id),
+read from the `exefs/` and `romfs/` folders of the snapshot's tree. The file is told apart by its `NXAR` magic, so the
+choices, checks, output folders and `--nup-package` behave as in the `.nup` section above. Blocks are RAW or zstd (the
+same `dkb.nup_zstd` rule); there is no encryption. The header CRC-32C and the catalog, manifest and block-index SHA-256
+are checked at open and each file's SHA-256 when it is read; the per-16-KiB block CRCs are not. Source resources of
+NX 0.3 are ignored. An update snapshot is a complete tree, so laying it over the base also keeps files the update
+deleted, as for a `.nup`.
+
 Run from this checkout with Python 3.12 or later, with the generator's dependencies (`tools/requirements.txt`). The
 window also needs tkinter. The source checkout must contain the full runtime; the older TotK prebuilt runtime
 library cannot build Bananza. A Windows tool package supplies:
@@ -49,6 +61,12 @@ the installer checks this checkout's existing toolchain layout. It never install
 python -m installer --game bananza --nup "<dump>/game.nup" --dest "<install folder>" --package "<tools>" --jobs 6
 python -m installer --game bananza --exefs "<dump>/base/exefs" --romfs "<dump>/base/romfs" --dest "<install folder>" --package "<tools>" --jobs 6
 ```
+
+`--romfs-in-place` (the window's "Use the RomFS where it is") skips the 9 GB packed copy: the install gets only
+`romfs/index.json`, and `romfs_dir` in `dkb.ini` points the game at the extracted RomFS folder, which it reads file by
+file (runtime/romfs.c, loose mode). The folder must then stay where it is; if it moves, the game stops at start or at
+the first missing file and names the path. It needs a folder of loose files, not a `.nup` or a packed image. A resume
+without folders keeps the choice; giving the folders again without the option packs the copy and removes the key.
 
 The shader translator is reused when its `.id` matches the current translator sources. Pass `--translator
 <path>/totk_xlate.exe` to choose a prebuilt translator, keeping `totk_xlate.id` beside it. Otherwise the installer
@@ -83,16 +101,32 @@ The Bananza steps are:
    executable, runtime libraries and RomFS index into place. The default worker limit is six; `--jobs` changes it.
 6. Translate the game's shaders: `tools/dkb_shader_census.py` writes the list of shader stages in the packed RomFS into
    `seed-nvn2.bin`, `dkb.exe --translate-shaders` lowers and translates them into the shader cache beside the executable
-   (a few minutes, about 3 GB), and the pack is deleted. Without this step the first visit to each area waits for its
+   (a few minutes, about 3 GB), and the pack is deleted. Last, `tools/pack_shader_cache.py` folds the cache's loose files (four per shader, about 118,000 on 3.2.0) into `shader-cache/shader-cache.pack`, so the folder copies and deletes in seconds instead of half an hour on Windows; a failure there is a warning. Without this step the first visit to each area waits for its
    shaders. Then `dkb.exe --warm-shaders` builds the driver's pipeline libraries; if that fails or the driver crashes
    (seen in `nvgpucomp64.dll` on NVIDIA 621.01) the installer warns and goes on, records `libraries: false` and does not
    retry, since the libraries only speed up the first draws. A translation failure fails the step.
-7. Write the selected language while preserving existing settings, run the installed executable's `--selftest`, and
-   remove only owned staging/build directories. Logs remain in the temporary folder. Setup does not start the game.
+7. Generate backgrounds and both centered/edge HUD variants for all six ultrawide presets, including 3440x1440.
+   `tools/dkb_wide_layout.py` checks packed resource bounds and expected layout geometry in the owned temporary
+   `build/` folder before copying overlays beside `romfs-index.bin`. Each overlay's manifest is published last.
+   Missing or changed overlays are repaired on resume without relifting or compiling the game; changes to either
+   layout tool also invalidate this step. Python 3.14+ uses `compression.zstd`; older development Python needs
+   `zstandard` from `tools/requirements-installer.txt`. If generation fails (including an unrecognized resource layout),
+   setup warns with the generator log path and continues without publishing new overlays; existing overlays remain
+   unchanged. The next setup run retries generation. Installer path/ownership failures and cancellation still stop setup.
+   The verified game version selects the layout rules: 3.2.0 removes one confirmation
+   dialog background pane and stores its title effects in `static.Product.200`. Overlay preparation preserves the
+   player's resolution and HUD settings.
+8. Write the selected language while preserving existing settings, run the installed executable's `--selftest`, and
+   remove only owned staging/build directories. Logs remain in the temporary folder. The setup itself does not start
+   the game; the window's finish screen has a Play button that does, once the folder checks out as finished.
 
 The portable output contains `dkb.exe`, its runtime DLLs, `totk_xlate.exe` and `.id`, `exefs/`, packed `romfs/`,
-`romfs-index.bin`, `totk.ini`, `dkb-install.json` and the `shader-cache/` folder of step 6. The inherited `totk.ini` name is
-intentional: the runtime reads it. Saves and further shader caches are created beside the executable when it runs. Source dumps stay untouched.
+`romfs-index.bin`, `dkb.ini`, `dkb-install.json`, the `shader-cache/` folder of step 6, and twelve
+`romfs-patches-<width>x<height>[-hud-edges]/` folders. An existing `totk.ini` is migrated to `dkb.ini`.
+Saves and further shader caches are created beside the executable when it runs. Source dumps stay untouched.
+
+Setup owns those twelve preset overlay folders and overwrites matching hand-made overlays when generation succeeds.
+Keep custom overlays in a separate folder and select it with `DKB_ROMFS_PATCHES` to avoid that overwrite.
 
 Only an empty destination or a Bananza install with matching ownership metadata is accepted. Temporary work has its
 own ownership marker; an unrelated nonempty temporary directory is refused. OS-held locks prevent simultaneous
@@ -117,6 +151,144 @@ A full generation/build and a title-screen run from the finished folder are sepa
 installer tests do not establish game compatibility. No completed install, game-derived output or cache belongs in a
 release or pull request. Release assembly in `tools/make_release*.py` still describes the inherited TotK package; a
 Bananza release must include the complete runtime source/dependencies rather than its old runtime archive.
+
+## Launcher and updates (Windows)
+
+`DKB-Launcher.exe` on the release page is the one file a player downloads (about 100 KB). It is the same program as
+the zip's `DKB-Setup.exe`: beside a `python\` folder it starts the setup window as before and passes its own arguments
+on, anywhere else it is the launcher. It is built from three files in `installer/launcher/`:
+
+- `launcher.c` (MIT, from TotK Recomp): the setup, the start of the installed version (`current.txt`, else
+  `previous.txt`), the arguments and the catalog strings. `TotK-Setup.exe` is this file alone.
+- `manifest.c` (MIT): reads `dkb-release.txt`, accepting exactly what `installer/update.py parse_manifest` accepts
+  (`ManifestParsersTest` feeds both the same files).
+- `fetch.c` (GPL-3.0-or-later): the first install, that is the download, the checks, the unpack and the progress
+  window. It is adapted from Longshot's and Project ReLink's setup programs (`THIRD_PARTY_NOTICES.md`), and only the
+  Bananza build compiles it (`tools/make_release.py launcher_sources`).
+
+What the player does:
+
+1. Puts `DKB-Launcher.exe` in a folder of its own (for example `C:\Games\DKB\`) and starts it.
+2. The first start asks before it downloads anything, then reads `dkb-release.txt` of the latest release, downloads
+   the tools zip it names (the same `DKB-Setup-<version>-windows.zip`), checks its size and SHA-256 and unpacks it
+   with Windows' own `tar.exe`. A file that does not match is deleted and nothing is unpacked or run. Closing the
+   progress window cancels: during the download at once, during the unpack once `tar.exe` is done; either way nothing
+   is kept or started. A second launcher started meanwhile waits for the first one's install and then starts it.
+3. The setup window opens with the install folder proposed beside the launcher's folder (`DKB-Bananza`); the player
+   picks the `.nup` or the ExeFS and RomFS folders, as with the zip, and the setup builds the game.
+4. From then on the launcher opens on its home screen: Play (starts `dkb.exe` from the install folder and closes the
+   launcher), Open folder, Install or rebuild (the form), and the release check.
+
+Everything the launcher keeps is in `DKB-Recomp` beside it (`installer/update.py` describes each file):
+
+```
+DKB-Recomp/
+  launcher.json            the install folder and the "look for a new release at start" setting
+  versions/current.txt     the version that starts; previous.txt the one before it
+  versions/<tag>/          an unpacked release zip (its own Python, LLVM, sources and installer)
+  downloads/               the zip while it downloads; deleted once unpacked
+  temp/                    the setup's work folder, shared by every version (--temp)
+  logs/launcher.log        what each check, download, verification and update did
+```
+
+The game folder stays as described above: saves in `profile/`, `dkb.ini`, the shader cache, all beside `dkb.exe`.
+
+**The check.** At each start the window asks GitHub's API for the latest release of this repository (when the API
+does not answer, for instance past its 60 requests an hour, it reads `dkb-release.txt` from the release's download
+link instead). That is the only request; it carries a generic User-Agent and no personal data, and nothing is
+downloaded until the player clicks Update. The home screen then says one of: a newer release is available, with its
+notes as GitHub has them and an Update button; this is the latest release; the latest release is older (no update
+offered, unless the window was started with `--allow-downgrade`); or GitHub could not be asked (offline: Play still
+works). A release made before the launcher (no `dkb-release.txt`) is offered with its page only. Versions compare by
+their numbers (0.10.0 is newer than 0.9.9, the commit after `+` does not count); pre-releases and drafts are never
+offered. The tick box under it turns the check at start off (`launcher.json` `"check_updates": false`); Check now still
+asks once. `--no-update-check` and `DKB_NO_UPDATE_CHECK=1` turn it off as well.
+
+**The update**, on one click:
+
+1. The window checks that the release's `dkb-release.txt` names the release's own tag and that the API lists both
+   files with the manifest's sizes (and, where GitHub gives one, the same SHA-256 digest).
+2. It downloads the tools zip to `downloads/<sha256>.zip.part`, three tries, counting the bytes and hashing as they
+   come; a file longer than the manifest says, cut short, or with another SHA-256 is deleted. Only a match is renamed
+   to `<sha256>.zip`.
+3. It unpacks the zip into `versions/<tag>.part`. Every member must lie under the zip's one top folder (no absolute
+   path, no `..`, no link) and have a name Windows keeps as it is (no `<>:"|?*` or control character, no trailing dot
+   or space, no device name such as `CON` or `NUL.txt`). The members together may unpack to at most 20 times the zip's
+   size, never less than 1 GiB and never more than 64 GiB (`update.unpack_limit`). It then checks that the result holds
+   the manifest's `VERSION`, its Python and the installer, and renames it to `versions/<tag>`. Any failure removes the
+   `.part` folder; the installed version is untouched. Cancel stops the download at its next block and deletes its
+   `.part` file; a Cancel that comes as the last block arrives deletes the checked zip without unpacking it, one
+   during the unpack keeps the unpacked folder for the next try; nothing starts in either case. Closing the window
+   during the update asks first, then does the same and closes once the worker is done.
+4. It starts the new version's window with `--after-update` and waits until that window confirms its start: it writes
+   its own tag to `current.txt` and the old one to `previous.txt`. If the new window exits first, `current.txt` still
+   names the old version, the old window says so and the next start of the launcher runs the old version.
+5. The new window replaces the launcher exe with its own `DKB-Setup.exe` when they differ (the file came in the checked
+   zip): a copy, `DKB-Launcher.exe.new`, is checked again and renamed over the launcher in one step, which works because
+   the launcher has exited by then. A launcher that still runs (started a second time) cannot be overwritten but can be
+   renamed: it becomes `DKB-Launcher.exe.old`, deleted at a later start, and the copy takes its name. No `.new` copy is
+   left behind.
+6. It runs the setup on the recorded install folder (`--dest` only, as a resume). The step keys decide what runs
+   again: a release that changes the runtime recompiles, one that changes the lifter relifts, one that changes nothing
+   game-derived skips the build. For 3.2.0 the generated code and objects in the shared `temp/` are reused. The dump
+   recorded at install is read again only when the data step must run again, so keep it where it was. Saves
+   (`profile/`) and the `dkb.ini` settings are kept, as on every setup run.
+
+A failure in the tools part (steps 1 to 4) changes nothing that runs: the installed version and the game folder are
+as they were. A failure or cancel of the setup run in step 6 leaves what the setup's resume handles. Before a rerun
+step finishes (the runner records a step only once it is done, and compile copies `dkb.exe` in at its end) the old
+game still plays and Play stays. After a rerun compile or translator step, until the final check (`dkb_verify`) has
+run again, the home screen shows the game as not built (`guilogic.install_state`) and Install or rebuild finishes it
+from the steps already done. Steps the check does not depend on (shaders, wide layouts, prompts) never hold Play back. The previous version folder stays until the next update and is the one the launcher starts when the current one
+has lost its Python (an antivirus removing files). Older version folders are removed when a new version confirms its
+start; a folder still in use stays and goes at a later start.
+
+**Going back.** While `previous.txt` names a version whose folder still holds its Python, the home screen offers
+"Go back to <tag>". After the player confirms, the window starts that version with `--after-update`, exactly as an
+update does with a new one. Its start (`update.confirm_start`) makes it `current.txt` and the running version
+`previous.txt`, and its setup run brings the game folder back to it. Nothing is downloaded and both folders stay, so
+the next check offers the newer version again, unpacked already.
+
+**Uninstall.** Delete the install folder (it holds the saves), `DKB-Recomp` and `DKB-Launcher.exe`. The launcher
+writes nothing to the registry, the Start menu or AppData; the GPU driver's own shader cache stays in the driver's
+folder.
+
+**Publishing.** `tools/make_release.py --game dkb --zip` writes `DKB-Launcher.exe` and `dkb-release.txt` beside the
+zip (`write_launcher_release`). The manifest is plain text, so the C launcher reads it without a JSON parser:
+
+```
+dkb-release 1
+version 0.4.2+abc1234
+tag v0.4.2
+tools <sha256> <bytes> DKB-Setup-0.4.2+abc1234-windows.zip DKB-Setup
+launcher <sha256> <bytes> DKB-Launcher.exe
+```
+
+The release workflow (`.github/workflows/dkb-release.yml`) uploads all three as the Windows artifact. On a `v*` tag,
+`tools/check_release.py` then checks that the manifest reads as the launcher reads it, names the tag and gives the size
+and SHA-256 of the files about to be published, and the job publishes them. A tag `v` plus the repository's `VERSION`
+becomes the latest release. A pre-release tag (`v0.4.2-rc1`; its manifest names `v0.4.2`) becomes a pre-release,
+which neither the launcher nor the window ever offers. Only that publish job may write to the repository; the build
+jobs only read it. Older releases have no manifest: the launcher's first start then says so and points to the release
+page.
+
+**Testing without a release.** A launcher built with `-DDKB_LAUNCHER_TEST` (never a release: the release build has no
+such variables) reads `DKB_LAUNCHER_BASE` in place of the `DKB-Recomp` folder, `DKB_LAUNCHER_MANIFEST` and
+`DKB_LAUNCHER_DOWNLOAD` in place of the manifest link and the download prefix (http is accepted only for 127.0.0.1),
+and with `DKB_LAUNCHER_LOG` set it shows no window: its messages go to that file and its questions are answered yes.
+`tests/installer_update_test.py` covers the manifest (good, tampered, truncated), the check (newer, same,
+older, downgrade, offline, API fallback, mismatching digests), the download (good, tampered, truncated, interrupted,
+too long, cancelled), the unpack (good, members leaving the folder, wrong version, damaged zip), the switch of versions
+(confirmed, failed, slow start), the launcher's replacement and the window's settings, all with an injected opener and
+no network. `python -m installer.gui --selftest --shots DIR` draws the home and update screens in both languages.
+`tests/launcher_e2e.py` (`launcher-e2e` in `tools/test.py`, tier 1: Windows, MSYS2 clang, under a minute) runs
+against a fake release server on 127.0.0.1. It does the first install of a release A with a `-DDKB_LAUNCHER_TEST`
+launcher for real, with a stub in place of Python and a junk `winhttp.dll` and `bcrypt.dll` beside the launcher,
+then the update to a release B in A's window: an `installer.gui.App` on a hidden Tk root whose check, Update and Go
+back run as a click runs them, its requests going through `update.http_open`, and B's start code
+(`gui.start_launcher`) in B's own folder. Both include the failure paths: a tampered zip, a cancel, two launchers at
+once, a window that never confirms, a kill between the two pointer files, and going back. GitHub's TLS and redirects
+are the part it does not cover.
 
 ## Inherited TotK installer
 
@@ -226,6 +398,7 @@ runtime/              libtotkrt.a and the headers the generated code and modules
 bin/                  totk_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
 data/                 shader_list.tsv (MacNativeGames, MIT)
 THIRD_PARTY_NOTICES.md
+LICENSE, LICENSE-MIT  the project's terms (GPL-3.0-or-later; MIT for the files that came from TotK Recomp)
 totk.ini.example, VERSION  the default ini; the release string (the repository's VERSION plus the commit)
 ```
 
@@ -243,50 +416,8 @@ at install); the lifted tree is `dkb100` instead of `v121`/`v143`.
 
 ## Linux release
 
-Bananza has two Linux setups: the AppImage (next section), which carries its own compiler, Python and sysroot and needs
-no system packages, and the source packages after it. The TotK AppImage the rest of this chapter describes is the model
-for both AppImages.
-
-### Bananza AppImage
-
-Preview. `LakuenApeRecomp-<version>-x86_64.AppImage` is built by `tools/make_release_linux.py --game dkb --appimage` in the
-`appimage` job of `.github/workflows/dkb-release.yml` (a manual run with `appimage_only` builds it alone). The player
-makes it executable and starts it, on a Steam Deck or a SteamOS desktop from Desktop Mode, and picks their .nup file
-(1.0.0, or with the 3.2.0 update inside) or the ExeFS and RomFS folders and an install folder in the same window as on
-Windows. Nothing is installed on the system: SteamOS's read-only root and its updates are no obstacle.
-
-The folder inside it is the TotK one below with the Windows dkb folder's contents: `runtime/` carries every runtime
-source, `sources.txt` and `totk.png` (the window icon) instead of `libtotkrt.a`, `bin/` has `totk_xlate` (+ `.id`),
-`ninja` and `libSDL3.so.0` but no hactool, the entry is `lakuenape-setup.desktop` and `lakuenape-setup.png` (the fork's name, LaküenApeRecomp, in the window and the menu entry), and `dkb.ini.example`,
-`LICENSE*` and the licences of Dear ImGui, Roboto and the translator join the notices. The installer compiles the whole
-runtime and the generated code with the folder's clang against `llvm/sysroot` (installer/bananza.py, `build_game.py
---full-build --sysroot`), and the host check is built against the same sysroot, so a host without C headers works.
-
-Building it needs no game files. With no runtime library to trace, `dkb_sysroot_files` preprocesses every runtime source
-of this OS and `installer/hostcheck.c` against the sniper sysroot with the flags `build_game.py` gives them (empty
-stand-ins for the lifter's `layout.h` and `patches.h` and for `romfs_config.h`) and keeps the sysroot files their `.d`
-files name; the C++ standard library, SDL3, Opus and libvpx headers go whole, and so do the libraries of the release link
-with the links on the way to their files. `dkb_toolchain_check` then uses only the finished folder: it builds and runs
-hostcheck as the installer does, links a probe against Vulkan, SDL3, Opus, libvpx, zstd and libstdc++, and compiles
-(`-fsyntax-only`) every runtime source that does not read the lifter's output; the others must reach it without a
-missing system header. The window selftest and the font check follow, as for TotK. `--prove` does not apply.
-
-Status: the folder and its checks are built in CI; a full install from a dump with the AppImage is not verified yet.
-The window's **When done** box on the build's page (`installer/power.py`) puts the computer in standby or shuts it down
-when the install ends, after a minute's countdown with **Don't do it**; never after Cancel. On Linux the install lowers
-its own priority first (nice 10, best-effort disk level 7, `bananza.py` lower_priority), which the compilers inherit
-(`DKB_NICE=0` keeps it), and the Browse buttons open kdialog or zenity when there is one (`DKB_TK_DIALOGS=1` keeps Tk's).
-
-After a finished install the window remembers the folder (`installer/launch.py`, `~/.config/lakuenape/setup.json`) and
-shows **Play**. Started again, it opens on that game: **Play** starts it and waits with the window hidden until the game
-ends, so Steam counts a non-Steam game pointing at the AppImage as running. When the fork has a newer release
-(`installer/update.py`), the window asks first: **Update** downloads the release's AppImage beside the running one
-(`$APPIMAGE`, else `~/Applications`), checks it against the release's `SHA256SUMS.txt` and starts it with `--dest <folder>
---auto-start`, which updates the recorded install; **Play current version** starts the game as it is. `--play` does the
-same without showing the window unless there is a newer release to ask about. The window speaks English, German
-(`installer/text/de.json`) or Russian, by the system language or its language buttons.
-Memory: the install compiles with `--jobs` workers (6 by default, about 0.75 GB each at peak; fewer on a 16 GB machine
-that runs out), and the game's own needs are those of [dkb-testing.md](dkb-testing.md).
+TotK only. The AppImage described here is TotK's (`--game totk`); Bananza has the source packages below and the
+self-contained image built with `--game dkb` (see above).
 
 ### Bananza Linux and macOS packages
 
@@ -325,6 +456,11 @@ Desktop Mode. Building the release also needs `make` and `pkg-config`. The bundl
 Xft against the sniper sysroot so Russian text uses system TrueType fonts. The setup builds the game into the folder they pick, as on Windows, and the game is `totk` there with
 `libSDL3.so.0` beside it. The folder inside the AppImage:
 
+The same script with `--game dkb` builds the Bananza folder (`DKB-Setup-x86_64.AppImage`): the same `python/`, `llvm/`
+and sysroot, no hactool, `runtime/libtotkrt.a` built from `generated/dkb100`, and the Bananza installer, which links that
+library instead of compiling `runtime/` from source. It needs a lifted game and .NET 10 at pack time and is built by
+hand, not in CI; the AppImage entry is `python/bin/python3 -m installer.gui` and `--check` and `--prove` apply as above.
+
 ```
 AppRun                starts python/bin/python3 -m installer.gui (no bytecode written into the read-only mount)
 totk-setup.desktop, totk-setup.png
@@ -347,7 +483,9 @@ bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
 - The setup's temp folder is `.setup-temp` inside the install folder (`--temp` changes it): the AppImage is mounted
   read-only, and a Steam Deck's `/home` is often too full for the generated C while the game goes to the SD card.
 - The game keeps Mesa's shader cache in `mesa-cache` beside `totk` unless `MESA_SHADER_CACHE_DIR` is set, for the
-  same reason: RADV fills its default folder in `~/.cache` up to 1 GB.
+  same reason: RADV fills its default folder in `~/.cache` up to 1 GB. The game raises that cap to 10 GiB
+  (`MESA_SHADER_CACHE_MAX_SIZE`, and `__GL_SHADER_DISK_CACHE_SIZE` for NVIDIA's driver) unless the variable is already
+  set, so that the stage libraries the setup warmed are not evicted.
 - The window follows `LANG` for English or Russian, cancels through SIGTERM to the CLI's process group (the CLI handles
   it as Ctrl+Break on Windows) and opens the finished folder with `xdg-open`.
 - Requirements beyond Windows': Linux 6.7 or later (the write watch, `docs/building.md`) and glibc 2.34.

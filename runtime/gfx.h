@@ -107,6 +107,16 @@ size_t gfx_shader_warm_list(GfxWarmEnt **out);              // malloc'd; recorde
 const GfxShader *gfx_shader_load_private(const uint8_t iid[32], int *owned);
 void gfx_shader_release_private(const GfxShader *s);
 const uint32_t *gfx_shader_spirv(const GfxShader *s, uint64_t *words);
+// A copy of vertex or fragment stage s that reads uniform block c4 at gl_InstanceIndex * 256 bytes (spirv_instance_c4.c,
+// for vk_exec_draw.c vk_exec_draw_merge). The vertex copy writes the instance to a flat int at Location
+// GFX_INSTANCE_C4_LOC and the fragment copy reads it there. Made on the first call and kept with s; NULL when the
+// stage cannot be rewritten, and for a fragment stage that has no c4 (the vertex copy is then paired with s).
+// Thread-safe. Bananza's stages use Locations up to 28. 29 leaves room under the 128 components of
+// maxVertexOutputComponents and maxFragmentInputComponents for the built-ins, which the validation layer counts too:
+// Location 31 plus gl_Position, gl_PointSize and a clip distance went over (VUID-RuntimeSpirv-Location-06272).
+#define GFX_INSTANCE_C4_LOC 29
+const GfxShader *gfx_shader_instance_c4(const GfxShader *s);
+int gfx_shader_is_variant(const GfxShader *s);              // s is such a copy
 uint64_t gfx_shader_spirv_fnv(const GfxShader *s);          // FNV-1a 64 of the SPIR-V bytes, taken once per shader
 uint64_t gfx_shader_failures(void);                         // failed translations; feeds GfxStats.shader_failures
 // Reflection: parsed once per shader from the translator's .res.json and the SPIR-V before it enters the cache.
@@ -148,11 +158,14 @@ void gfx_shader_local_size(const GfxShader *s, uint32_t local[3]);     // CS: th
 typedef struct {
     uint64_t passes, draws_seen, draws, clears, copies, dispatches, submits;
     uint64_t twin_restarts;   // pass restarts to copy a depth twin (vk_exec_draw.c twin_prepare)
+    uint64_t cs_barriers;     // compute-to-compute barriers between dispatches (vk_exec.c vk_exec_barrier_cs)
+    uint64_t twin_sliced;     // depth twins copied before sliced passes began (vk_exec_draw_twins_copy)
     uint64_t fb_draws, fb_barriers, fb_restarts, fb_layouts;   // feedback loops: draws sampling a written target of
                                                                // their pass, in-pass barriers, pass restarts, layout
                                                                // transitions
 } GfxExecFrame;
 enum { GFX_TOOL_PREPARE_SHADERS, GFX_TOOL_TRANSLATE_SHADERS, GFX_TOOL_WARM_SHADERS };   // GfxBackend.shader_tool
+enum { GFX_SPLASH_START, GFX_SPLASH_GUEST };                                            // GfxBackend.splash
 typedef struct {
     const char *name;
     // ---- guest side: called by the NVN front end (nvn_api_*.c, nvn_ext.c) on guest threads.
@@ -185,6 +198,10 @@ typedef struct {
     void (*window_resize)(void);    // gfx_window_resize: the window has its new size; the swapchain or drawable follows
     const char *(*present_mode)(void);   // gfx_window_present_mode: the mode the swapchain got; "" before one, "none" without
     int  (*window_hdr10)(void);     // gfx_window_hdr10: the swapchain is HDR10 now; any thread, guest threads included
+    // boot: the start-up screen (vk_splash.c) in the window from its creation to the game's first picture. GFX_SPLASH_START
+    // first thing, on the boot thread; GFX_SPLASH_GUEST just before the guest starts (a test sequence of the screen,
+    // DKB_SPLASH_TEST, holds the start there until it ends).
+    void (*splash)(int when);
     void (*boot_async)(void);       // boot, before the prewarm: pipelines may be built in the background (not with --shot)
     void (*boot_prewarm)(void);     // boot: what earlier runs recorded is made ready; the guest starts after it returns
     void (*save)(void);             // every exit path, with the saves: the back end's caches and records go to disk

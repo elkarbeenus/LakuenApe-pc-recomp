@@ -65,6 +65,18 @@ Result: every stage of the first 3D scene lowers and translates (4,820 of 4,820)
 shared and local memory index (patch 0013), because the game's neural upscaler reads shared memory out of bounds
 ([#9](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/9)).
 
+The game never asks for the "zero times anything is zero" multiply. On SM86 `FMUL` and `FFMA` keep their float mode in
+a two-bit field made of bit 80 (low) and bit 76 (high): 1 is `.FTZ`, 2 is `.FMZ`, 3 is invalid (nvdisasm 13.4 on
+words with those bits flipped). Of about 1.6 million `FMUL`/`FFMA` words in the 4,985 dumped stages, every one has
+mode 0 or `.FTZ`, none `.FMZ`. The lowering refuses bit 76 (`lower_to_maxwell.h`, the `FFMA` and `FMUL` cases), so a
+stage that used it would fail with a logged reason instead of losing the mode, and the translator would ignore it
+anyway: Ryujinx decodes `Fmz` but no emitter reads it, while Eglantine's Maxwell `FMUL` (`floating_point_multiply.cpp`)
+selects 0 when an operand is 0. A NaN from `x * inversesqrt(dot(x, x))` with a zero `x` (`MUFU.RSQ` gives +Inf, then
+`FMUL.FTZ 0, Inf`) is therefore a NaN on the console too, and a stage that hits it in our port means `x` was 0 for us
+and not for the console ([#139](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/139),
+[#387](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/387)). `DKB_FMZ` hides such NaN but does not match the
+hardware.
+
 ## Replaying a failed translation locally
 
 Set `DKB_SHADER_FAILURE_DUMP` to an absolute path under an ignored `build/` directory before launching the game.

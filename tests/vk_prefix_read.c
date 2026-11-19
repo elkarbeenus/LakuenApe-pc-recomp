@@ -46,12 +46,20 @@ void rt_log(const char *fmt, ...) { (void)fmt; }
 void plat_mutex_lock(PlatMutex *m) { NEED(!m->p); m->p = (void *)1; }
 void plat_mutex_unlock(PlatMutex *m) { NEED(m->p); m->p = NULL; }
 void plat_cond_broadcast(PlatCond *c) { NEED(c == &cv_work); }
+void plat_thread_priority(int prio) { (void)prio; }   // submit_record raises the replay above normal
+int plat_thread_priority_get(void) { return 0; }
 VkCtx *vk_ctx(void) { return &context; }
 uint64_t perf_begin(void) { return 123; }
 void perf_end(int k, uint64_t t) { (void)k; (void)t; }
 void perf_gpu_wait(uint64_t t) { (void)t; }
 void perf_replay(uint64_t t) { (void)t; }
 void perf_replay_totals(uint64_t d, uint64_t t, uint64_t c) { (void)d; (void)t; (void)c; }
+// perf.c's replay parts (TOTK_TRACE=perf), off in the fixture
+int perf_ph_replay_begin(void) { return 0; }
+void perf_ph_replay_end(int prev) { (void)prev; }
+uint64_t perf_ph_begin(void) { return 0; }
+uint64_t perf_ph_begin_cpu(void) { return 0; }
+void perf_ph_end(int part, uint64_t t0) { (void)part; (void)t0; }
 uint64_t vk_exec_draws_total(void) { return 0; }
 void vk_exec_pool_counts(uint64_t *c, uint64_t *t) { *c = *t = 0; }
 uint64_t kern_now_ns(void) { return 456; }
@@ -60,6 +68,7 @@ void vk_mem_dirty_submit(void) {}
 void vk_mem_protect_until(uint64_t f) { NEED(f == cur_fence); }
 void rec_stats_log(void) {}
 static void ts_drop(void) {}
+static void held_none(const char *where) { (void)where; }   // no split part held back (vk_sync_split_defer)
 static void state_reset(VkExec *ex) { memset(ex, 0, sizeof *ex); }
 void vk_dump_init(void) {}
 void vk_mem_mirror_begin(void) { NEED(x_here); mirror_begin++; }
@@ -70,6 +79,10 @@ void vk_usnap_begin(const uint64_t *handles, int n, uint64_t f) {
 void vk_usnap_end(uint64_t f) { NEED(!x_here && f == X.fence); snapshot_end++; }
 void vk_exec_pass_end(VkExec *ex) { NEED(ex == &X); ex->in_pass = 0; }
 static void par_flush(VkExec *ex) { (void)ex; }
+// No pass end is held back (TOTK_PAR_DEFER off): nothing to settle, and no slice contexts wait for their merge.
+static void par_settle_all(VkExec *ex) { (void)ex; }
+static int par_no_defer __attribute__((unused)), par_unmerged, par_nworkers;
+void vk_exec_draw_slices_end(int n) { (void)n; }
 static int par_mode;
 static int par_threads(void) { return par_mode; }
 static int npiece __attribute__((unused));   // vk_exec.c only assigns it now

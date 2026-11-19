@@ -1,15 +1,40 @@
 # DLSS (experimental)
 
-`upscaler = dlss` in `totk.ini` (or `DKB_UPSCALER=dlss`) replaces the game's own upscaler, the compute dispatch that
-scales the rendered frame to the output resolution, with NVIDIA DLSS Super Resolution (`runtime/vk_dlss.c`). FSR still
-scales the output to the window when the window is larger. The setting is read at start.
+`upscaler = dlss` in `dkb.ini` (or `DKB_UPSCALER=dlss`) replaces the game's own upscaler, the compute dispatch that
+scales the rendered frame to the output resolution, with NVIDIA DLSS Super Resolution (`runtime/vk_dlss.c`). The window
+scaling is the `window_filter` setting's, as with any upscaler (below). The setting is read at start.
 
 Needs:
 
 - An NVIDIA RTX GPU on Windows, with a driver recent enough for DLSS. The driver installs the NGX core
   (`_nvngx.dll`); the runtime finds it through the driver's registry keys.
 - `nvngx_dlss.dll`, the DLSS model, next to `dkb.exe`. DKB Recomp does not ship it. Take it from a game or from
-  NVIDIA's DLSS SDK release (310.5 or later for preset M, which the runtime asks for).
+  NVIDIA's DLSS SDK release (310.5 or later for preset M, which `dlss_preset = m` asks for).
+
+## Turning it on
+
+1. Put `nvngx_dlss.dll` next to `dkb.exe` (not in a subfolder; the log line names the path it looked for).
+2. Pick NVIDIA DLSS in the F1 menu's upscaler row, or write `upscaler = dlss` under `[display]` in `dkb.ini`.
+3. Restart the game: NGX adds its Vulkan extensions when the device is made, so DLSS starts only with a run that
+   began with `upscaler = dlss`.
+4. Keep `scene_res = auto`, or choose `full` for DLAA (native anti-aliasing, update 3.2.0 only, `docs/dkb-testing.md`).
+   Without that patch `full` draws the 3D scene at the output size and the game runs no upscale to replace.
+5. Read `logs/dkb.log` next to `dkb.exe`. A run with DLSS on has `dlss: NGX core loaded`, then
+   `dlss: NGX initialised ...` and, once the game upscales, `dlss: Quality WxH -> WxH, preset K`. Every way it can
+   stop logs one `dlss:` line with the reason; a `cfg: ... upscaler = '...' is not one of ...` line means the value
+   was misspelt. `dlss: the game ran no upscale in the last 1800 frames` means the game draws its 3D scene at the
+   output size, which a fast GPU reaches at the default `output_res`; a larger `output_res` (3840x2160) gives DLSS
+   an upscale to replace.
+
+The model: `dlss_preset` in `dkb.ini` (`DKB_DLSS_PRESET`, `auto|k|m`, applies at the next upscale). `auto`, the
+default, asks for DLSS 4's transformer model (preset K) in every quality mode but Ultra Performance, which has its own
+model (L); `m` asks for DLSS 4.5's second transformer model (preset M) instead of K. NVIDIA recommends K for DLAA,
+Quality and Balanced and M for Performance; `auto` keeps K in Performance as well, because the game's dynamic
+resolution can move the input across the Balanced/Performance scale and each crossing would recreate the feature
+(about 80 ms). In the Hilltop Layer of Surf Hills (3.2.0, RTX 5090, `Quality 2560x1440 -> 3840x2160`) the upscale took
+2.6 to 3.7 ms of GPU time a frame with M and 0.8 ms with K. It runs near the end of the frame, while the game's main
+thread waits for the GPU, so the whole difference shows in the frame time. `dkb.log` names the preset of each feature
+(`dlss: Quality 2560x1440 -> 3840x2160, preset K`).
 
 What it does: the game has no temporal anti-aliasing of its own (no velocity target, no history), so the runtime
 makes the inputs DLSS needs.
@@ -39,7 +64,9 @@ as before this change: zero motion vectors, a zero depth image, a new history. T
 output to input (DLAA at 1:1).
 
 DLSS only runs where the game runs its own upscaler. `scene_res = full` (`docs/dkb-testing.md`) draws the scene at
-the whole render resolution on purpose, so neither the game's upscaler nor DLSS runs then. When the game draws the scene at the output size (in 150 s
+the whole render resolution on purpose, so neither the game's upscaler nor DLSS runs then, except on update 3.2.0,
+where the patch set `dkbnative` makes the game run its upscale step at that size and DLSS runs as DLAA (the same
+setting runs FSR 3.1 and FSR 4 as native anti-aliasing). When the game draws the scene at the output size (in 150 s
 replays on 1.0.0 with a 1920x1080 output it switched to that partway through the play, at a different point in each
 run), there is no upscaler dispatch to replace and the game's picture is shown as it is.
 
@@ -48,9 +75,103 @@ window's or `output_res`. On a 2560x1440 virtual display (`output_res`) the game
 thirds of it on each side (issue #152, update 3.2.0, `dlss: Quality 1138x640 -> 1706x960`); at the default 2880x1620
 that is 1920x1080; at 3840x2160 the upscaler goes 2560x1440 -> 3840x2160 and DLSS ran `Quality 2560x1440 -> 3840x2160` on 1.0.0. The frame is stretched from there to the window as with the game's upscaler, so DLSS looks soft
 when the window is much larger than that image. `render_scale` is a TotK setting and does nothing here (its menu row is hidden on Bananza); the HUD's "3D scene" line and `dkb.log` (`upscaler: WxH -> WxH`) report the game's own upscaler input and output sizes instead. The game scales its 3D resolution dynamically and runs the upscaler only while that is below the output size; once it reaches the full size (easy at 1080p on a fast GPU) the line reads "no upscaler" and DLSS has nothing to upscale.
+The first DLSS feature of a process loads the model and starts CUDA, about 2 s, so it is made at the title screen
+(the warm-up, `dlss: NGX initialised and ...`). With `DKB_DLSS_WARM_FULL` on (the default) the warm-up makes the
+feature for the size the game's upscaler writes (the virtual display with `scene_res` set; two thirds of it with
+`scene_res = auto` on 3.2.0, as above) and the motion pass's pipeline, and keeps both for the first upscale, which
+otherwise made them in the first frame of a level: 28 ms and 11 to 12 ms on entering the Hilltop Layer (3.2.0,
+`output_res` 3840x2160, RTX 5090). `dkb.log` then has `dlss: Quality WxH -> WxH, preset K` at the title screen and no
+such line at the level; one at the level means the game wrote another size and the feature was made again there. The
+feature stays while DLSS is the chosen upscaler, whatever the game draws in between, so entering a level again makes
+none.
+
 `dkb.log` gets a `dlss:` summary at the first frame and every 1800 frames: how many frames had depth and motion
 vectors, how many ran spatially, and how many started a new history.
 
 When anything is missing or fails (no NVIDIA GPU, no NGX core, no `nvngx_dlss.dll`, NGX initialisation or feature
 creation fails, an input larger than the output), `dkb.log` gets one line starting with `dlss:` that says why, and
 the game's own upscaler runs for the rest of the run.
+
+## FSR 3.1 instead (`upscaler = fsr3`, issue #270)
+
+`upscaler = fsr3` (read each frame, any GPU with push descriptors and the extended storage image formats) replaces the
+same dispatch with AMD's FSR 3.1 temporal upscaler, `runtime/vk_fsr3.c`: the FidelityFX SDK's passes
+(`runtime/third_party/fidelityfx`, built by `tools/build_shaders.py`) recorded as dispatches of our own, no AMD library.
+It takes DLSS's inputs from `vk_dlss.c` (`vk_temporal_inputs`: the jitter, the scene depth and the camera motion
+vectors), the near and far distances from the scene's projection, and the game's depth as it is (the passes are built
+for a forward depth). A frame without a scene at the input size, or an unsupported GPU, leaves the dispatch to the game's
+upscaler; `dkb.log` gets `fsr3:` lines (the passes ready, the sizes, a summary every 1800 frames, and
+`fsr3: N frames, T temporal, R resets` at exit). RCAS is not used. The temporal inputs do not depend on NGX, so `fsr3` also builds and runs off Windows; only DLSS is Windows-only.
+
+## FSR 4 (`upscaler = fsr4`, issue #270)
+
+`upscaler = fsr4` (read each frame) is the same replacement with AMD's FSR 4 upscaler (4.x, the newest the library lists), `runtime/vk_fsr4.c`. It
+needs AMD's library, which this project does not ship:
+
+- Windows: take `amd_fidelityfx_loader_vk.dll` and `amd_fidelityfx_upscaler_vk.dll` from the FidelityFX SDK v2.4.0 release
+  (`Kits/FidelityFX/signedbin` in <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK>) and put both in one folder.
+  The loader lists the upscalers the GPU can run (FSR 4 is for Radeon GPUs the loader lists a 4.x upscaler for, RDNA 4 at least).
+  The Bananza setup can fetch them: tick "Download AMD FSR 4 from AMD" (or run `python -m installer ... --fsr4 accept`).
+  The window first shows AMD's license of that SDK release, fetched from AMD's repository, and fetches nothing unless the
+  user accepts it. The step (`installer/fsr4.py`, `dkb_fsr4`) then downloads both libraries from the repository at the tag,
+  checks each against its pinned size and SHA-256, and puts them next to `dkb.exe` with the license
+  (`AMD-FidelityFX-SDK-license.md`). The release and the hashes are pinned because the terms have changed between releases:
+  v2.1.0 to v2.3.0 left the signedbin libraries under AMD's binary-only license, v2.4.0 lists them among the MIT files. A
+  newer release takes new hashes there and a new acceptance. A later setup keeps them; `--fsr4 off` (untick) stops
+  fetching them and leaves the files. A failed download warns, and setup goes on with FSR 3.1. `upscaler = fsr4` stays the
+  user's choice either way.
+- Linux: AMD publishes no Linux library; a Vulkan FSR 4 build that exports the same entry points (`ffxCreateContext`,
+  `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`), such as fsr4-vk, is named `amd_fidelityfx_upscaler_vk.so` and put in
+  one folder. Set `upscaler = fsr4` in `totk.ini` before the start: such a library records with descriptor buffers, so the
+  device enables `VK_EXT_descriptor_buffer` (only when the GPU has it, and only for this setting with the library found).
+  Without the extension the library refuses its context and `dkb.log` says so.
+
+The folder is the one `fsr_dir` names (in `totk.ini`), and when the library is not there the folder of the program (`dkb.exe`
+or `dkb`). `dkb.log` has `fsr4: loaded <path>` for the file that was taken.
+
+The inputs are the same as the other temporal upscalers' (`vk_temporal_inputs`), but the library cannot take them as the game
+has them: the scene depth is a D24S8 image and the colour may hold a NaN, which would stay in its history. One small pass
+(`runtime/shaders/fsr4_prep.comp`) makes, at the render size, the colour as RGBA16F (a NaN is 0, nothing is negative or above
+64000), the depth as `1 - d` in R32F and the camera motion vectors cropped to the render size. The library is told the depth is
+reversed (`FFX_UPSCALE_ENABLE_DEPTH_INVERTED`) and, when the projection's far plane is at infinity, as the game's is,
+`FFX_UPSCALE_ENABLE_DEPTH_INFINITE`, with the true near and far distances from the projection; the context is made again if
+that changes. A reversed projection is not used (the game's upscaler runs for it). The library writes an RGBA16F picture at
+the output size and FSR 3.1's output pass writes it into the game's output image. On Linux a 1x1 exposure texture of 1 is given
+to the library, as a Vulkan FSR 4 build wants one when AMD's own exposure is not used. `dkb.log` has `fsr4: input pass in use:
+...` at the first frame, naming the formats, the sizes, the near and far distances and whether the far plane is infinite.
+
+The colour is taken as perceptual when it is not a float or sRGB format; the setting `FSR4_LDR = 1` (`DKB_FSR4_LDR` in the
+environment, read at start) takes it as perceptual up to 1 whatever its format, for diagnosing a washed-out or too dark picture.
+
+A context is never destroyed while a submission may still use it: when the output size changes and no slot for the old context
+is free, FSR 4 skips that frame (the game's upscaler runs) and tries again on the next.
+
+With no library, a failed load, or no 4.x provider (as on NVIDIA), `dkb.log` gets one `fsr4:` line saying why and the FSR 3.1
+path above runs instead, as does a dispatch that fails. The API headers are in `runtime/third_party/ffx_api`.
+
+## When an upscaler is not chosen
+
+An upscaler the Upscaler row (or `upscaler` in `dkb.ini`) no longer chooses gives back what it holds about 120 frames
+(2 s at 60 fps) after it was last chosen, once the GPU is done with it (`runtime/temporal_idle.h` for the rule,
+`vk_dlss.c` `vk_temporal_idle_tick` for where each upscaler is asked; the rule is Longshot's, commit `e314e2b7`). One
+`dkb.log` line says what went, and the next upscale with that upscaler makes it again:
+
+- `dlss: not used for 120 frames: its feature let go; ...`: NGX's feature, with its model memory and history (making it
+  again takes about 80 ms of one frame).
+- `fsr3: not used for 120 frames: its images let go; ...`: FSR 3.1's internal images (about 40 to 60 MB at 1280x800, some
+  320 MB at 4K). Its pipelines and constants stay, so no shader is built again.
+- `fsr4: not used for 120 frames: its images and AMD's context let go; ...`: the input pass's colour, depth and motion
+  images, the output image and the exposure image (freed once the GPU is done with them), and AMD's context with the
+  library's own images, destroyed as a change of the output size destroys it. The DLLs (or the library) stay loaded and so
+  does the input pass's pipeline; the images and the context are made again at the next FSR 4 frame, and the
+  `fsr4: FSR ... made for outputs of WxH` line shows the context.
+- `temporal: no upscaler chosen for 120 frames: the motion-vector and depth images let go; ...`: the images the three
+  upscalers share, once none of them is chosen.
+
+An upscaler that is still chosen keeps everything, however long the game runs no upscale (loading screens, or a 3D scene
+drawn at the output size): making it again at each area's first frame would stall every entry. Frame interpolation
+(`frame_gen_by = fsr3`, `vk_fsr3fi.c`) keeps its images: it is made and used on the present thread, which a release from
+the replay thread would race, and it is not covered by this.
+
+To check it, set `upscaler = fsr3`, play a few seconds, then choose `fsr` (or the game's own upscaler) in the menu or with
+`TOTK_MENU_TEST_SET`: about two seconds later the `fsr3: not used ...` line and the `temporal: ...` one follow.

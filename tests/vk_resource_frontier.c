@@ -54,6 +54,7 @@ _Noreturn void rt_fatal(const char *format, ...) {
     fputc('\n', stderr); ExitProcess(21);
 }
 void rt_log(const char *format, ...) { (void)format; }
+uint64_t kern_now_ns(void) { return 0; }   // vk_sync.c vk_sync_queue_submit times the submit
 unsigned rt_trace;
 static void wb_async_forget(const void *e) { (void)e; }
 void vk_dlss_image_gone(VkImage image) { (void)image; }
@@ -61,12 +62,22 @@ void perf_count(int kind) { (void)kind; }
 uint64_t perf_begin(void) { return 0; }
 void perf_replay(uint64_t start) { (void)start; }
 void perf_replay_totals(uint64_t d, uint64_t t, uint64_t c) { (void)d; (void)t; (void)c; }
+// perf.c's replay parts (TOTK_TRACE=perf), off in the fixture
+int perf_ph_replay_begin(void) { return 0; }
+void perf_ph_replay_end(int prev) { (void)prev; }
+uint64_t perf_ph_begin(void) { return 0; }
+uint64_t perf_ph_begin_cpu(void) { return 0; }
+void perf_ph_end(int part, uint64_t t0) { (void)part; (void)t0; }
 uint64_t vk_exec_draws_total(void) { return 0; }
 void vk_exec_pool_counts(uint64_t *c, uint64_t *t) { *c = *t = 0; }
 // No helper translator runs (vk_spec.c): every texture call is the replay thread's, and no part is out to give up.
 _Thread_local int vk_spec_here;
 int vk_spec_fail(int why) { rt_fatal("unexpected helper failure %d in the frontier fixture", why); }
 void vk_spec_world_changed(void) {}
+// No pass end is held back (vk_exec.c par_defer): the texture cache's barrier never waits and nothing is frozen.
+static int tex_frozen;
+static int vk_exec_held_pending(void) { return 0; }
+static void hold_barrier(void) {}
 void vk_spec_event(void) {}
 // The actual shared split helper also contains the ordered-readback branch. Retirement scenarios must keep using
 // the nonwaiting branch; reaching any of these new dependencies is a fixture failure, not a simulated success.
@@ -138,6 +149,8 @@ void plat_once(PlatOnce *once, void (*fn)(void *), void *arg) {
     if (once->state != 2) { check(once->state == 0, "once initialized before threads"); fn(arg); once->state = 2; }
 }
 void plat_cond_broadcast(PlatCond *condition) { (void)condition; }
+void plat_thread_priority(int prio) { (void)prio; }   // submit_record raises the replay above normal
+int plat_thread_priority_get(void) { return 0; }
 void vk_queue_lock(void) {}
 void vk_queue_unlock(void) {}
 static VkResult synthetic_counter(VkDevice d, VkSemaphore s, uint64_t *value) {
@@ -190,10 +203,17 @@ static void synthetic_destroy_set_layout(VkDevice d, VkDescriptorSetLayout l, co
 // The sparse mirror cache and the slice threads' write-back lists (vk_memory.c) stay empty in this fixture.
 static int mirror_sparse;
 static void sparse_cache_close(void) {}
-typedef struct WbLocal { void *a; int n, cap; struct WbLocal *next; } WbLocal;
+static void wb_shutdown(VkCtx *c) { (void)c; }
+static void staged_shutdown(VkCtx *c) { (void)c; }   // vk_memory.c: no staged mirror in this fixture
+static uint64_t staged_min;
+static int staged_fault;
+static void staged_own_shutdown(VkCtx *c) { (void)c; }
+static volatile uint64_t inject_lost;   // vk_memory.c batch_status: TOTK_STAGED_INJECT=fence is off here
+typedef struct WbLocal { void *a; int n, cap; void *k; int nk, ck; void *s; int ns, cs; struct WbLocal *next; } WbLocal;
 static WbLocal *wb_locals;
 #define cmd_pool memory_cmd_pool
 @MEMORY_FUNCTIONS@
+static void pinned_reader(void) { (void)pinned_batch; }   // vk_upload_flush reads it; not part of this fixture
 #undef cmd_pool
 
 static void own_remove(Tex *e) { check(!e->listed, "fixture has no GPU writeback-list entry"); }
@@ -211,6 +231,7 @@ static int alias_copy(Tex *a, const Tex *b) { (void)a; (void)b; check(0, "no liv
 static void init_image(Tex *image, VkCommandBuffer cb) { (void)image; (void)cb; }
 VkCommandBuffer vk_upload_begin(void) { return (VkCommandBuffer)(uintptr_t)0xC200; }
 void vk_upload_end(void) {}
+void vk_mem_pressure_check(void) {}   // vk_mem_collect calls it after each collection (vk_mem_pressure.c, #374)
 int vk_mem_changed(uint64_t a, uint64_t n, uint32_t before, uint32_t *now) {
     (void)a; (void)n; (void)before; (void)now; check(0, "not a mirrored image"); return 0;
 }
@@ -222,6 +243,7 @@ void vk_mem_shadow_sync(void) {}
 static void ts_begin(VkCommandBuffer cb) { (void)cb; }
 static void ts_end(VkCommandBuffer cb, uint64_t fence) { (void)cb; check(fence == 2, "split keeps its final fence"); }
 static void ts_drop(void) {}
+static void held_none(const char *where) { (void)where; }   // no split part held back (vk_sync_split_defer)
 void rec_begin(VkCommandBuffer cb) { (void)cb; }
 int rec_end_cb(VkCommandBuffer cb, int crumb, uint64_t fence) { (void)cb; (void)crumb; (void)fence; return 0; }
 // The recorder ends no command buffer above, so split_impl submits every part itself and never hands one over.

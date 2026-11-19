@@ -1,22 +1,91 @@
-DKB Recomp 0.3.0: a static recompilation of *Donkey Kong Bananza* (Switch 2) to a native Windows exe with a Vulkan renderer. It is still experimental (0.x): it plays the tutorial, its cutscene and the first stage on recent NVIDIA cards, and it can crash.
+## Draft: next release (since 0.4.2)
 
-**The packages hold no game data, and no release ever will.** You build the game on your own PC from your own dump of **1.0.0 or the 3.2.0 update**, given as a `.nup` file or as ExeFS and RomFS folders. Other updates are not supported.
+- Thai: `lang = th` plays update 3.2.0 in Thai (#180, thanks @RavenChz for testing the mod route). Guest `setjmp`/`longjmp` now work, which the Thai text layout needs.
+- Setup option "Use the RomFS where it is" (`--romfs-in-place`, #305): the game reads your extracted `romfs` folder through `romfs_dir` instead of a ~9 GB copy; same load times and fps as the packed image in our tests. Keep the folder where it is afterwards.
+- PlayStation button prompts follow your `bind_` lines, not only `pad_layout` (#416; re-run the setup to rebuild the prompts).
+- With `realtime = 1`, the frame rate is held to 120 fps at most (`realtime_max_fps`, 0 removes the ceiling), because steps shorter than 1/120 s crash the record merge job in the EmeraldRush challenge levels (#411, #421; thanks @NoireOvO for the runs that narrowed it down).
+- 16:10 screens (1280x800, 1920x1200, 2560x1600): the view grows taller and the HUD stays whole in a centred 16:9 area (#249). Tested on 3.2.0.
+- Local co-op: a second gamepad plays Pauline (Pause > Co-op mode > Share controllers, #240). `coop = 0` turns it off. Tested with a simulated second pad only; reports with two real pads are welcome.
+- Recording a draw costs about 14% less: unchanged index and vertex buffers and dynamic states are no longer bound again, and uniform buffers are found faster. On 6 logical processors frames over 50 ms in the heaviest scene tested fell from about 22 to 15 a minute (`TOTK_DYN_KEEP=0` brings back the old dynamic-state path).
+- The replay and its Vulkan recorder run above normal priority while a frame is submitted, so the game's loading threads no longer starve them on CPUs with few cores: on 6 logical processors a level transition's replay fell from about 11 ms a frame to 0.25 ms.
+- #419 Keep the Bananza installer tests independent of the host's free space and symlink rights (@wrothgaril)
+- #420 DKB-Launcher.exe: a small Windows launcher that installs the build tools from the latest release (@wrothgaril)
+- #422 Stamp release files with the commit time (@GlebShekovtsov)
+- #425 Name the disk that is short of space in the Bananza installer (@cybersecurityhandle)
+- The Bananza setup folds the shader cache (about 118,000 loose files on 3.2.0) into one `shader-cache.pack`, so deleting or copying an install no longer takes tens of minutes (#402)
+- #423 Let the Bananza setup fetch AMD FSR 4 from AMD's repository after you accept its license (off by default) (@GlebShekovtsov)
+- #424 Take the staged mirror's bookkeeping off the replay thread and commit guest memory ahead of use in the background (@wrothgaril)
+- #429 Yield after each background commit slice, so a guest thread waiting for the memory lock gets in (@wrothgaril)
+- #430 A start-up screen with real progress in the game window, from its opening to the game's first picture (`splash = 0` turns it off) (@wrothgaril)
+- Windows: `DKB-Launcher.exe`, a small launcher you download once. It installs the build tools from the latest release (size and SHA-256 checked), runs the setup on your dump, then shows Play, looks for a new release at each start (a tick box turns that off), shows its notes and updates in place with one click: it downloads only the new tools zip, keeps the old version until the new one has started, rebuilds only the steps whose inputs changed and keeps your saves (`profile/`) and `dkb.ini`. It replaces itself with the new release's launcher. The setup zip still works as before, and `DKB-Setup.exe` now passes its arguments on to the setup (#402, #140).
 
-## What is new since 0.2.0
+New files in the package table of that release:
 
-- **Settings menu.** Settings are split into Display and Graphics tabs, controller and mouse-and-keyboard settings are separate rows, dropdowns and steppers scroll and behave better, and the binding help is corrected. Two wider resolution presets for ultrawide screens were added.
-- **HDR (experimental, off by default).** An HDR10 output with `hdr`, `hdr_peak_nits` and `hdr_game_nits` settings, and an experiment that lets the game render its own HDR10 picture (`DKB_HDR_NATIVE=1`, 3.2.0 with `hdr = 1`). Native HDR highlights are taken up to the display's peak, because the game's own tonemap stops at about 1.36 times paper white.
-- **DLSS (experimental, RTX only).** DLSS is now temporal: sub-pixel jitter, depth and camera-only motion vectors reach NGX. DLSS output is the game's own 3D resolution, so `render_scale` does nothing on Bananza and the HUD shows the upscaler's real sizes.
-- **High resolutions.** 3840x2160 and 5120x1440 no longer overflow the game's fixed render-target pool, which now grows with the output size (#152). 3840x2160 ran 90 s at 60 fps on 3.2.0 without a crash.
-- **Update 3.2.0.** DLSS works there with the same shaders as on 1.0.0, and a radial blur that stayed on screen above 60 fps after a smash is released (#158).
-- **Frame generation (experimental, off by default).** `FRAME_GEN=2x` shows an interpolated frame half an interval before each real one, only in mailbox or immediate present mode; it skips a made frame on a hitch or a crop change. See `docs/dkb-framegen.md`.
-- **Performance.** Descriptor memos each sit behind their own switch (those that did not pay were removed), the draw state is one context per thread, uniform buffers can be dynamic (`TOTK_DYN_UBO`, off by default until validated on AMD and Intel), range lists use an inlined merge sort, and about 1 ms was cut from the heavy-scene replay. Helper threads that translate long runs of draws (`TOTK_REPLAY_PAR`) and sliced big passes (`DKB_REPLAY_THREADS`) exist but are off by default. An unlimited frame limit (`TOTK_FPS_LIMIT=unlimited`) was added (#113).
-- **Memory.** `TOTK_HEAP_LAZY=1` (Windows, off by default) commits the guest heap on first touch: the commit of the first level drops from about 14.5 GiB to about 9.3 GiB. It relies on spin-lock patches that are now in the 1.0.0 and 3.2.0 patch tables; the same patches fix a spin-lock livelock (#126).
-- **Low-end bench.** `tools/lowend_bench.py` runs the game on the first N logical processors and prints one table. On the first level it held 60, 60, 58.9 and 55.6 fps on 16, 8, 4 and 2 logical processors (`docs/dkb-lowend.md`).
-- **Installer.** A work folder path with shell-special characters is refused before the build starts (#189), and the work folder is named without them. The installer also tells you when a newer release exists (`--no-update-check` turns it off), and shows a clear message when Windows asks for elevation.
-- **macOS and Metal.** The macOS build is fixed (a function defined twice), and the host side of the graphics layer now goes through `GfxBackend` to prepare a Metal back end. Play on macOS is still not verified.
-- **Diagnostics.** `TOTK_SVC_SLOW=1` logs guest service calls that block for 100 ms or more, slow RomFS reads are logged, `TOTK_MEM_REPORT=N` reports where the commit goes, `DKB_DRAW_PROFILE` gives replay time by section, and two AMD device-lost aids exist (`TOTK_FIX_VS_FAULT=all`, `TOTK_CRUMB_BIND=1`).
-- **Scripted input.** Wait markers and a replay clock that lands at the same game time on every run.
+| File | For | Notes |
+|---|---|---|
+| `DKB-Launcher.exe` | Windows 10/11 x64 | New, the simplest way: one small file. Put it in a folder of its own and start it; it downloads the tools zip below, checks its SHA-256, builds the game from your dump and offers each later release with one click (docs/installer.md, "Launcher and updates"). |
+| `dkb-release.txt` | the launcher | The version, the file names, sizes and SHA-256 the launcher checks itself and the tools zip against. |
+
+DKB Recomp 0.4.2: a static recompilation of *Donkey Kong Bananza* (Switch 2) to a native Windows exe with a Vulkan renderer. It is still experimental (0.x). A small release: fixes and community pull requests from the day after 0.4.1, with most of the work on frame drops in heavy scenes, on first runs and on PCs with fewer CPU threads.
+
+**The packages hold no game data, and no release ever will.** You build the game on your own PC from your own dump of **1.0.0 or the 3.2.0 update**, given as a `.nup` or `.nx` file or as ExeFS and RomFS folders. Other updates are not supported.
+
+Not run in play by us: Switch 2 controllers over Bluetooth (`switch2 = 1`), HD rumble on the pads that reported problems, and the lookahead on AMD hardware.
+
+## What is new since 0.4.1
+
+- **Heavy scenes.** The layer -200 scene, the one most players reported, holds 60 fps on a Ryzen 7 5700X and RTX 5060 Ti with warm caches (first minute about 57 fps while it loads, second minute 59.9, 1% low 51; 0.4.0 gave 54 and 27). Most of it comes from the pointer guards no longer asking Windows about memory (#401) and the other replay and memory changes listed below.
+- **Fewer CPU threads.** PCs with 4 to 7 logical processors (many laptops, 6-core CPUs without SMT) record big render passes on 3 threads by default instead of one: on layer -200, frames over 50 ms in the first minute fell from about 160 to 16 on 6 logical processors and from 203 to 47 on 4 (docs/dkb-lowend.md).
+- **First runs.** With an empty pipeline cache, a draw that waits for its pipeline builds it itself instead of queueing behind dozens of skipped draws (longest wait 2.4 s to 0.23 s), and before it waits it queues the pipelines of the frame's next draws, so the first heavy frame stalls about 3 s instead of about 10 s (#309; `TOTK_LOOKAHEAD=0` turns it off).
+- **Long sessions.** Frame drops that come after an hour or more of play (#317, #391, #380, #397) are much smaller with #401.
+- **Crashes and device loss.** The Landfill Layer device loss on NVIDIA 50-series (#304) is avoided by skipping one vertex stage on NVIDIA.
+- **Picture.** The radial blur a smash starts ends above 60 fps with `realtime = 1` on 1.0.0 too, as it already did on 3.2.0 (#389, #390).
+- **Input.** HD rumble is off by default (`rumble_hd = auto` turns it on) because three third-party Switch Pro pads broke with it; it sends neutral values while the motors are silent and falls back to two motors when a pad drops (#363, #383). Switch 2 controllers can connect over Bluetooth LE with `switch2 = 1` (#413, off by default).
+- **Installer and setup.** DLC from a container whose base package has title id 0 installs, and an add-on that cannot be placed is reported (#388). `console = 0` also closes a Windows Terminal window (#238, #364). A refused `output_res` says which sizes work (#403). The installer's dotnet no longer adds a dead folder to your PATH on every install.
+- **Testing.** `TOTK_VRAM_LIMIT=<MiB>` caps the video memory budget the runtime reads, to see how a smaller card behaves.
+
+## Pull requests in this release
+
+Thank you to everyone who sent code. Each one below is new since 0.4.1:
+
+- #354 Read indirect-reset pointer lists from guest memory instead of through a GPU read-back (TOTK_RESET_CPU_LIST) (@thatbananaman08, landed with a host-pool check)
+- #357 Slice passes whose draws sample an image through a depth twin (@GlebShekovtsov)
+- #360 Scripted game runs with a verdict: tools/scenario.py, save_warp.py and perf_check.py (@thatbananaman08)
+- #361 Scan a pool's pages for its mirror sync under the pool's own lock, and take mirror_lock only to queue the copies (@thatbananaman08)
+- #365 Skip the submit scans of copies that hold nothing for them (@thatbananaman08)
+- #366 Log the scheduler state when no frame has been presented for a while (TOTK_STALL_DUMP, default 5 s) (@thatbananaman08)
+- #367 Opt-in orders for consecutive dispatches: the game's barriers alone, or compute barriers (TOTK_CS_BARRIER) (@GlebShekovtsov)
+- #368 Apply the follow-ups from the review of #338: Anti-Lag 2 across a device restart, Auto's flight thumbnails, and the frame_gen_by text (@roverdrubber)
+- #372 Leave the translator's emulated compare-exchange loop after 1024 attempts (@roverdrubber)
+- #373 Skip the futex wake of a Linux condition variable signal when no thread waits (@roverdrubber)
+- #374 Give the heap's freed pages back under Linux memory pressure (@roverdrubber)
+- #376 Share one sampler per create info and retire the least used near the driver's limit (@roverdrubber)
+- #377 Keep an opaque ASTC texture as BC1 instead of BC3 with `astc_bc1 = 1` (off by default) (@roverdrubber)
+- #378 Lazy write-back of shader storage writes on Linux, off by default (@roverdrubber)
+- #379 Copy the full-size 3D through native anti-aliasing's upscale step (@roverdrubber)
+- #385 Stamp the GPU writes of a command buffer in batches at its fence (@wrothgaril)
+- #386 Write the GPU writes of a held part back to guest memory once the part is submitted (@wrothgaril)
+- #392 Let a recording thread note its GPU writes in a list of its own (@wrothgaril)
+- #393 Copy the indirect reset's disjoint records in address order (@wrothgaril)
+- #399 Keep the window scaling filter row open when the window is the picture size (@wrothgaril)
+- #400 Log where a large pool's first GPU use spends its time, and resume write-watch queries where a full answer stopped (@wrothgaril)
+- #401 Answer the pointer guards' readability checks without VirtualQuery (@wrothgaril)
+- #405 Thaw a pool's whole frozen regions without VirtualQuery (@wrothgaril)
+- #406 Split the replay of a slow frame into its parts in the perf trace (@wrothgaril)
+- #407 Create the DLSS feature and the motion pass's pipeline ahead of the first upscale (@wrothgaril)
+- #408 Skip mem_touch's VirtualQuery for lazy-heap chunks known to be committed (@wrothgaril)
+- #409 Save TOTK_SHOTS and --shot pictures of an RGB10A2 (HDR) presented image (@wrothgaril)
+- #410 TOTK_MIRROR_STAGED (off by default): feed pools' VRAM mirror through staging (@wrothgaril)
+- #413 Switch 2 controllers over Bluetooth LE (`switch2 = 1`, off by default), ported from mkw-recomp (@zigzagulouszagger)
+- #414 Start a new guest thread on its ideal core alone, as Horizon does (@wrothgaril)
+
+## Issues fixed or answered by this release
+
+#238 and #364 (console window, @mashakos, @JiangYunWeiShu), #304 (Landfill Layer device loss, @Dimiduh), #309 (late models and textures on a first run, @Th0rfinnKarlsefni), #317 (@li-beihai), #391 (@1665879844), #380 (@supermahdi-enjoyer) and #397 (@crni20zd) (frame drops over time and in heavy scenes), #363 and #383 (HD rumble, @mrflanderson, @zero-zhouxiang), #388 (DLC with a zero title id, found and fixed by @Ki1z), #389 and #390 (smash blur above 60 fps, @elitalos, @Chadman246), #403 (custom resolution, @NicNamSam). Some of these stay open until the reporter retests.
+
+## Thanks
+
+Pull requests since 0.4.1: wrothgaril, roverdrubber, thatbananaman08, GlebShekovtsov, zigzagulouszagger. Issues, logs, saves and recordings: everyone named above. Thank you.
 
 ## Download
 
@@ -28,24 +97,22 @@ DKB Recomp 0.3.0: a static recompilation of *Donkey Kong Bananza* (Switch 2) to 
 
 ## Requirements (Windows)
 
-- NVIDIA GPU with a recent driver (tested on an RTX 5060 Ti and an RTX 3070 Ti Laptop). AMD and Intel are experimental: device loss has been reported (#3, #84, #99, #124, #142, #193).
-- 16 GB of RAM plus a large page file (the process commits about 14 GB, or about 9 GB with `TOTK_HEAP_LAZY=1`), 32 GB is comfortable.
+- NVIDIA GPU with a recent driver (tested on an RTX 5060 Ti and an RTX 3070 Ti Laptop). AMD and Intel are experimental: on AMD's Windows driver the device loss most players hit is fixed (recorder thread off), and RADV on Linux can still hang (#99, #122, #198, #204). Intel Arc: #3.
+- 16 GB of RAM plus a large page file (the process commits about 9 GB), 32 GB is comfortable.
 - A controller is recommended.
 
 ## Known issues
 
-- Device lost on several AMD cards without a fault address (#3, #84, #99, #124, #142, #193), and a GPU hang on an RX 6600 under RADV (#122).
-- A crash on Linux when walking into the tunnel from the Lagoon Layer to the Hilltop Layer (#126).
-- A frame limit below 60 on 1.0.0 only holds with "Game speed follows the clock" on; without it the game keeps its own timing (#118).
-- A reproducible device lost in the Glacier layer rock ride on an RTX 5090 Laptop (#196).
-- The validation layer reports 10 errors from a depth-compare sampler on an R32_SFLOAT view; no visible effect has been reported.
-- The first visit to an area can stutter. Open-area performance is 31 to 35 fps on an RTX 3070 Ti Laptop; a heavy scene on an RTX 5060 Ti measured 51.8 fps with a 1% low of 20.6 fps, so heavy scenes can still fall under 60 fps.
-- The cutscene at the end of the tutorial lost the device on NVIDIA before a workaround (#75); it is on by default and the cause is not known.
-- The NVIDIA workaround for #9 skips light quads, which hides some particles (#62).
-- Checkerboard textures (#5), one-sided sound in the first 20 seconds (#63), #76, #83, #112 and unrecorded NVN 2 calls (#6).
+- GPU hangs under RADV on Linux (#99, #122, #198, #204), and a driver fault on Intel Arc (#3).
+- Crashes reported without a reproduction here: #126 (Lagoon to Hilltop tunnel, retest asked), #136 (Forest snow tunnel landing: needs a guard on a call, after this release), #148 (Linux, after the first boss: the next log will name the function).
+- Black shards where salt or acid meets slime (#139, #266, #387).
+- Text is soft at 1440p and above: the game's fonts are drawn at a fixed size (#214; `DKB_FONT_SCALE=1` helps small text).
+- Another device loss on an RTX 5080 at B1000 (#336); retests of the Landfill Layer skip (#304) and of long sessions (#317) are welcome.
+- On CPUs with 4 to 6 threads heavy scenes stay around 40 fps, bound by the replay thread. A first run with an empty pipeline cache still stalls about 3 s on its first heavy frame, and area loads can stutter about 0.1 to 0.4 s.
+- Checkerboard textures (#5), #112 and unrecorded NVN 2 calls (#6).
 
 ## Reporting a bug
 
-Open an issue with the log (`dkb.log`), the build line at its top (`dkb 0.3.0+<commit>`), your GPU and driver, and what you did before it failed. **Never share generated files, keys or screenshots that show game content.**
+Open an issue with the log (`dkb.log`), the build line at its top (`dkb 0.4.1+<commit>`), your GPU and driver, and what you did before it failed. **Never share generated files, keys or screenshots that show game content.**
 
-Roadmap: #10. Testers: #3 (other GPUs) and #7 (play further).
+Roadmap: #10.

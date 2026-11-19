@@ -23,6 +23,7 @@ from pathlib import Path
 from . import layout as layouts
 from . import state as statefile
 from . import ini
+from . import fsr4
 from .events import LauncherReporter, Reporter
 from .runner import Context, InstallError, Step, run_steps
 
@@ -34,6 +35,13 @@ TARGETS = (GAME, 'dkb458752')   # 1.0.0 and 3.2.0 (title version 458752); tools/
 NUP_SELECT = ('latest', 'base')
 EXE = '.exe' if os.name == 'nt' else ''
 CHUNK = 8 << 20
+WIDE_SIZES = ('2560x1080', '3440x1440', '3840x1600', '5120x2160', '3840x1080', '5120x1440')
+# The PlayStation prompt overlays and the face buttons each is made for (runtime/romfs.c ps_prompts_init): the two pad
+# layouts, and each with A and B on the other layout's buttons (bind_ lines that swap X and Y over the Xbox table, or A
+# and B over the Nintendo one; positions of A, B, X, Y in tools/dkb_ps_prompts.py).
+PS_FOLDERS = {'romfs-patches-ps': 'xbox', 'romfs-patches-ps-nintendo': 'nintendo', 'romfs-patches-ps-senw': 'senw',
+              'romfs-patches-ps-eswn': 'eswn'}
+WIDE_FOLDERS = tuple(f'romfs-patches-{size}{suffix}' for size in WIDE_SIZES for suffix in ('', '-hud-edges'))
 COMMIT_WARN_GIB = 24   # the game commits about 14 GB; README asks for 16 GB of RAM plus a large page file
 
 
@@ -83,7 +91,7 @@ def plain_destination(dest, dlls=()):
     # profile/ and caches belong to the player and are never traversed or written by setup.
     files = (STATE, STATE + '.tmp', DEST_OWNER, '.dkb-setup.lock', 'dkb.ini', 'dkb.ini.tmp', 'totk.ini',
              'totk.ini.tmp', 'romfs-index.bin', 'seed-nvn2.bin', 'dkb' + EXE, 'totk_xlate' + EXE, 'totk_xlate.id', *(p.name for p in dlls))
-    for name in ('exefs', 'romfs', *files, *(name + '.setup-part' for name in files)):
+    for name in ('exefs', 'romfs', *WIDE_FOLDERS, *files, *(name + '.setup-part' for name in files)):
         plain_tree(dest / name)
 
 
@@ -108,6 +116,9 @@ def inventory(root, reporter):
     files = tree_files(root)
     if not files:
         raise InstallError('dkb.romfs_empty', path=str(root))
+    # The largest real RomFS file is about 55 MB; a file past 1 GiB is a RomFS image from a dumping tool.
+    if any(p.stat().st_size > 1 << 30 for p in files):
+        raise InstallError('dkb.romfs_image', path=str(root))
     result = []
     for i, p in enumerate(files):
         before = p.stat()
@@ -199,6 +210,12 @@ def tree_key(base):
                    if p.is_file() and '__pycache__' not in p.parts])
 
 
+def prebuilt_runtime(layout):
+    """The release's runtime/libtotkrt.a, built with the folder's toolchain and sysroot, or None: a checkout compiles
+    runtime/ from source, and so does a source package that carries no library."""
+    return layout.runtime_lib if not layout.dev and layout.runtime_lib.is_file() else None
+
+
 def tool_module(layout, name):
     spec = importlib.util.spec_from_file_location('_dkb_' + name.removesuffix('.py'), layout.tools / name)
     module = importlib.util.module_from_spec(spec)
@@ -216,7 +233,7 @@ def nup_source(layout, path, select):
     the format and order inventory() gives for a loose folder. Nothing is decompressed or written."""
     tool = tool_module(layout, 'extract_nup.py')
     try:
-        container = tool.Nup(path)
+        container = tool.open_container(path)
     except (tool.NupError, OSError, ValueError, UnicodeDecodeError) as e:
         raise InstallError('dkb.nup_invalid', path=str(path), detail=str(e)) from None
     try:
@@ -302,6 +319,13 @@ def preflight(layout, options, dest, temp, rep):
             raise InstallError('dkb.need_folders')
         game = select_target(layout, exefs)
         inputs, sources = (exefs, romfs), {'exefs': str(exefs), 'romfs': str(romfs)}
+        # In place: the game reads the RomFS folder itself (romfs_dir, runtime/romfs.c loose mode) and no 9 GB image is
+        # packed into the install. A resume without folders keeps the choice the last run recorded.
+        if getattr(options, 'romfs_in_place', False) or (not options.romfs and recorded.get('romfs_in_place')):
+            sources['romfs_in_place'] = True
+    in_place = bool(sources.get('romfs_in_place'))
+    if getattr(options, 'romfs_in_place', False) and not in_place:
+        raise InstallError('dkb.in_place_folder', path=str(nup_arg))
     if old is not None and old['game'] != game:
         raise InstallError('dkb.dest_unrelated', path=str(dest))
     if dest.exists() and not dest.is_dir():
@@ -341,6 +365,8 @@ def preflight(layout, options, dest, temp, rep):
         rep.progress('check', 'dkb_base')
         hashes = expected_exefs(layout, exefs, game)
         packed = (romfs / 'index.json').is_file() and (romfs / 'romfs.bin').is_file()
+    if packed and in_place:
+        raise InstallError('dkb.in_place_folder', path=str(romfs))
     if packed:
         ensure_plain(romfs / 'index.json')
         ensure_plain(romfs / 'romfs.bin')
@@ -351,13 +377,18 @@ def preflight(layout, options, dest, temp, rep):
     else:
         files = files if nup_arg else inventory(romfs, rep)
         romfs_id = digest(files)
-        romfs_size = sum(e['size'] + 15 for e in files)
+        romfs_size = 0 if in_place else sum(e['size'] + 15 for e in files)   # in place: nothing copied or packed
     missing = [p for p in (layout.clang, layout.ninja, layout.recomp / 'gen.py',
                            layout.recomp / f'patches-{game}.txt', layout.tools / 'dkb_pack_romfs.py',
                            *([layout.tools / 'extract_nup.py'] if nup_arg else []),
+                           *([layout.tools / 'extract_nx.py'] if nup_arg and nup_arg.suffix.lower() == '.nx' else []),
                            layout.tools / 'dkb_shader_census.py',
-                           layout.runtime / 'nvn2_lower.cpp', layout.tools / 'data' / f'expected-{game}.json')
+                           layout.tools / 'dkb_wide_layout.py', layout.tools / 'ultrawide_layout.py',
+                           layout.tools / 'dkb_ps_prompts.py', layout.tools / 'data' / f'expected-{game}.json')
                if not p.is_file()]
+    # The release compiles nvn2_lower.cpp into libtotkrt.a, so it is not needed when the library is present.
+    if prebuilt_runtime(layout) is None and not (layout.runtime / 'nvn2_lower.cpp').is_file():
+        missing.append(layout.runtime / 'nvn2_lower.cpp')
     if layout.deps:
         missing += [p for p in (layout.deps / 'include', layout.deps / 'lib') if not p.is_dir()]
     if os.name == 'nt':
@@ -385,7 +416,7 @@ def preflight(layout, options, dest, temp, rep):
             raise InstallError('dkb.dotnet_missing')
     return dict(old=old, game=game, sources=sources, hashes=hashes, files=files,
                 romfs_id=romfs_id, romfs_size=romfs_size, owner=owner, translator=translator, identity=identity,
-                dotnet=dotnet, packed=packed,
+                dotnet=dotnet, packed=packed, in_place=in_place,
                 pipeline=digest(*(sha256(Path(__file__).with_name(n)) for n in ('bananza.py', 'runner.py', 'state.py'))))
 
 
@@ -497,8 +528,13 @@ class Check(Step):
         need = ctx.info['romfs_size'] + (3 << 30) + (temp_need if same_disk else 0)
         ctx.reporter.emit('space', dest=str(ctx.dest), need=need, free=free, temp=str(ctx.temp),
                           temp_need=temp_need, temp_free=temp_free, same_disk=same_disk)
-        if free < need or temp_free < temp_need:
-            raise InstallError('dkb.space', need=round(need / (1 << 30), 1))
+        # Name the disk that is short: the temporary folder defaults to the setup folder (layout.temp), not the install
+        # folder, so a player who only moves the install folder to a roomier disk still fails on the setup's disk.
+        gib = lambda n: round(n / (1 << 30), 1)
+        if free < need:
+            raise InstallError('dkb.space', path=str(ctx.dest), need=gib(need), free=gib(free))
+        if temp_free < temp_need:
+            raise InstallError('dkb.temp_disk_space', path=str(ctx.temp), need=gib(temp_need), free=gib(temp_free))
         ctx.temp.mkdir(parents=True, exist_ok=True)
         self.host(ctx)
         ctx.verify_kept(self.id)
@@ -508,19 +544,20 @@ class Check(Step):
         command = [ctx.layout.clang, '-O1', ctx.layout.root / 'installer' / 'hostcheck.c', '-o', exe]
         if ctx.layout.deps:
             command += ['-I', ctx.layout.deps / 'include']
-        if ctx.layout.sysroot:
-            # The Linux AppImage: the host may have no C headers or link libraries at all (SteamOS), so the probe builds
-            # against the folder's sysroot like the game does (installer/steps.py makes the same choice for TotK)
-            command += [f'--sysroot={ctx.layout.sysroot}', '-fuse-ld=lld']
         if os.name != 'nt':
             command += ['-ldl']
+        if ctx.layout.sysroot:
+            # The release's clang has no system headers of its own: build against the sysroot, as the game does (#293)
+            command += ['--target=x86_64-linux-gnu', f'--sysroot={ctx.layout.sysroot}']
         run_tool(ctx, self.id, command)
         result = subprocess.run([str(exe)], capture_output=True, text=True)
         try:
             host = json.loads(result.stdout)
         except ValueError:
             raise InstallError('check.host_probe_failed', code=result.returncode) from None
-        if not host['x86_64_v3']:
+        # Without AVX2 the game builds for x86-64-v2 (tools/build_game.py then compiles runtime/ instead of the
+        # release's v3 library)
+        if not host['x86_64_v3'] and not host['x86_64_v2']:
             raise InstallError('check.cpu_no_avx2')
         if not host['loader']:
             raise InstallError('check.vulkan_missing')
@@ -537,13 +574,20 @@ class Data(Step):
     def key(self, ctx):
         parts = [ctx.info['hashes'], ctx.info['romfs_id'], ctx.info['pipeline'],
                  sha256(ctx.layout.tools / 'dkb_pack_romfs.py')]
+        if ctx.info['in_place']:
+            parts.append(['romfs_in_place', ctx.info['sources']['romfs']])
         if 'nup' in ctx.info['sources']:   # folder installs keep the key they had before .nup input existed
             parts += [sha256(ctx.layout.tools / 'extract_nup.py'), ctx.info['sources']['nup_package']]
+            if ctx.info['sources']['nup'].lower().endswith('.nx'):
+                parts.append(sha256(ctx.layout.tools / 'extract_nx.py'))
         return digest(*parts)
 
     def current(self, ctx, record):
         try:
             expected_exefs(ctx.layout, ctx.dest / 'exefs', ctx.info['game'])
+            if 'loose' in record:
+                return (Path(record['loose']).is_dir() and
+                        sha256(ctx.dest / 'romfs' / 'index.json') == record['index_sha256'])
             image = ctx.dest / 'romfs' / 'romfs.bin'
             return (image.stat().st_size == record['size'] and image.stat().st_mtime_ns == record['mtime_ns'] and
                     sha256(ctx.dest / 'romfs' / 'index.json') == record['index_sha256'])
@@ -551,6 +595,8 @@ class Data(Step):
             return False
 
     def verify(self, ctx, record):
+        if 'loose' in record:
+            return self.current(ctx, record)
         try:
             return pack_manifest(ctx.dest / 'romfs')['romfs_sha256'] == record['sha256']
         except InstallError:
@@ -565,13 +611,16 @@ class Data(Step):
             # below against the preflight list taken from the same records.
             romfs = Path(sources['nup'])
             run_tool(ctx, self.id, [ctx.layout.python, ctx.layout.tools / 'extract_nup.py', romfs,
-                                     '--select', sources['nup_package'], '--pack', '--out', stage])
+                                     '--select', sources['nup_package'], '--pack', '--aoc', '--out', stage])
         else:
             exefs = Path(sources['exefs'])
             for name in ctx.info['hashes']:
                 copy_file(exefs / name, stage / 'exefs' / name)
             romfs = Path(sources['romfs'])
         expected_exefs(ctx.layout, stage / 'exefs', ctx.info['game'])
+        if ctx.info['in_place']:
+            return self.in_place(ctx, stage, romfs)
+        set_romfs_dir(ctx, None)
         if ctx.info['packed']:
             for name in ('romfs.bin', 'index.json'):
                 copy_file(romfs / name, stage / 'romfs' / name)
@@ -603,9 +652,47 @@ class Data(Step):
             copy_file(stage / 'exefs' / name, ctx.dest / 'exefs' / name)
         for name in ('romfs.bin', 'index.json'):
             copy_file(stage / 'romfs' / name, ctx.dest / 'romfs' / name)
+        # Add-on content found in the .nup: a failed pack was skipped by the tool, so only whole folders are here.
+        for folder in sorted((stage / 'aoc').glob('aoc-*')):
+            try:
+                for name in ('romfs.bin', 'aoc-index.bin'):
+                    copy_file(folder / name, ctx.dest / folder.name / name)
+            except (InstallError, OSError) as e:
+                ctx.reporter.log(f'{self.id}: add-on content {folder.name} not installed: {e}')
         image = ctx.dest / 'romfs' / 'romfs.bin'
         return {'sha256': manifest['romfs_sha256'], 'size': image.stat().st_size, 'mtime_ns': image.stat().st_mtime_ns,
                 'index_sha256': sha256(ctx.dest / 'romfs' / 'index.json')}
+
+
+    def in_place(self, ctx, stage, romfs):
+        """index.json of the folder as dkb_pack_romfs.py would pack it (the offsets only size the index), with each
+        file's SHA-256 from preflight, and romfs_dir in dkb.ini; the installed romfs.bin, if any, is removed."""
+        entries, off = [], 0
+        for e in ctx.info['files']:
+            off += -off % 16
+            entries.append({'path': e['path'], 'offset': off, 'size': e['size'], 'sha256': e['sha256']})
+            off += e['size']
+        manifest = {'status': 'pass', 'source': 'loose RomFS folder read in place; each file hashed by the setup',
+                    'loose': str(romfs), 'romfs_size': off, 'romfs_sha256': ctx.info['romfs_id'], 'files': entries}
+        (stage / 'romfs').mkdir(parents=True, exist_ok=True)
+        (stage / 'romfs' / 'index.json').write_text(json.dumps(manifest), encoding='utf-8')
+        for name in ctx.info['hashes']:
+            copy_file(stage / 'exefs' / name, ctx.dest / 'exefs' / name)
+        copy_file(stage / 'romfs' / 'index.json', ctx.dest / 'romfs' / 'index.json')
+        ensure_plain(ctx.dest / 'romfs' / 'romfs.bin')
+        (ctx.dest / 'romfs' / 'romfs.bin').unlink(missing_ok=True)
+        set_romfs_dir(ctx, str(romfs))
+        return {'loose': str(romfs), 'index_sha256': sha256(ctx.dest / 'romfs' / 'index.json')}
+
+
+def set_romfs_dir(ctx, folder):
+    """romfs_dir in dkb.ini: the folder the game reads in place, or None to remove the key (the packed image)."""
+    for name in ('dkb.ini', 'dkb.ini.tmp', 'totk.ini'):
+        ensure_plain(ctx.dest / name)
+    if folder or (ctx.dest / 'dkb.ini').is_file() or (ctx.dest / 'totk.ini').is_file():
+        ctx.dest.mkdir(parents=True, exist_ok=True)
+        ini.write(ctx.dest, None, ctx.layout.ini_example, 'dkb.ini', fallback='totk.ini',
+                  change=lambda text: ini.set_value(text, 'romfs_dir', folder, 'files'))
 
 
 class Translator(Step):
@@ -631,7 +718,11 @@ class Translator(Step):
                    # Reusable MSBuild nodes retain NuGet task DLLs after publish and block Windows cleanup.
                    # These settings affect only this build, not the owner's other .NET work.
                    'MSBUILDDISABLENODEREUSE': '1', 'DOTNET_CLI_USE_MSBUILD_SERVER': '0',
-                   'UseSharedCompilation': 'false'}
+                   'UseSharedCompilation': 'false',
+                   # A fresh DOTNET_CLI_HOME is a first run: without these, dotnet adds that home's tools folder to
+                   # the user's PATH for good, one dead entry per install, until cmd can no longer find System32.
+                   'DOTNET_ADD_GLOBAL_TOOLS_TO_PATH': 'false', 'DOTNET_SKIP_FIRST_TIME_EXPERIENCE': '1',
+                   'DOTNET_NOLOGO': '1'}
             command = [ctx.layout.python, ctx.layout.tools / 'build_xlate.py', '--out', out]
             if os.name != 'nt':
                 command += ['--llvm', ctx.layout.llvm]
@@ -686,11 +777,13 @@ class Compile(Step):
     id = 'compile'
 
     def key(self, ctx):
+        lib = prebuilt_runtime(ctx.layout)
         return digest(ctx.keys['lift'], source_key(ctx.layout, 'runtime', 'tools/build_game.py', 'tools/romfs_index.py'),
                       str(ctx.layout.llvm), str(ctx.layout.deps),
                       sha256(ctx.layout.clang), sha256(ctx.layout.ninja),
                       tree_key(ctx.layout.deps) if ctx.layout.deps else 'system-libraries',
-                      [(str(p), sha256(p)) for p in ctx.layout.dlls])
+                      [(str(p), sha256(p)) for p in ctx.layout.dlls],
+                      sha256(lib) if lib else 'runtime-from-source')
 
     def current(self, ctx, record):
         exe = ctx.dest / ('dkb' + EXE)
@@ -709,6 +802,9 @@ class Compile(Step):
                 '--modules', 'main,sdk', '--exefs', ctx.dest / 'exefs', '--romfs', ctx.dest / 'romfs',
                 '--profile', ctx.dest / 'profile', '--runtime', ctx.layout.runtime, '--toolchain', ctx.layout.llvm,
                 '--ninja', ctx.layout.ninja, '--jobs', ctx.options.jobs, '--full-build']
+        lib = prebuilt_runtime(ctx.layout)
+        if lib:
+            args += ['--runtime-lib', lib]
         if ctx.layout.deps:
             args += ['--deps', ctx.layout.deps]
         if ctx.layout.sysroot:
@@ -723,7 +819,8 @@ class Shaders(Step):
     """Translate every shader stage in the game's files into the shader cache, so no draw waits for a first translation.
 
     tools/dkb_shader_census.py lists the stages (RomFS) into seed-nvn2.bin and dkb.exe --translate-shaders lowers and
-    translates them. The cache belongs to the player and survives later steps; the 187 MiB pack is removed again."""
+    translates them. The cache belongs to the player and survives later steps (the verify step folds it into
+    shader-cache.pack); the 187 MiB seed pack is removed again."""
     id = 'dkb_shaders'
 
     def key(self, ctx):
@@ -758,6 +855,144 @@ class Shaders(Step):
         return {'prepared': True, 'libraries': libraries}
 
 
+class WideLayouts(Step):
+    """Validate both HUD variants for every wide menu preset before publishing any overlay."""
+    id = 'dkb_wide'
+
+    def key(self, ctx):
+        return digest(ctx.keys['dkb_data'], ctx.info['game'], WIDE_SIZES,
+                      source_key(ctx.layout, 'tools/dkb_wide_layout.py', 'tools/ultrawide_layout.py'))
+
+    def current(self, ctx, record):
+        try:
+            return (set(record.get('outputs', {})) == set(WIDE_FOLDERS) and
+                    all((ctx.dest / name / 'manifest.tsv').is_file() and
+                        tree_key(ctx.dest / name) == record['outputs'][name] for name in WIDE_FOLDERS))
+        except OSError:
+            return False
+
+    def verify(self, ctx, record):
+        return self.current(ctx, record)
+
+    def run(self, ctx):
+        plain_outputs(ctx)
+        staged = ctx.temp / 'build' / 'wide-overlays'
+        owned_dir(ctx, staged)
+        try:
+            run_tool(ctx, self.id, [ctx.layout.python, ctx.layout.tools / 'dkb_wide_layout.py',
+                                    '--version', ctx.info['game'],
+                                    '--romfs', ctx.dest / 'romfs', '--out', staged,
+                                    '--installer-workspace', ctx.temp, '--presets', *WIDE_SIZES])
+        except InstallError as error:
+            if error.id != 'dkb.tool_failed':   # path/ownership failures still stop setup
+                raise
+            ctx.reporter.warning('warn.dkb_wide_failed', code=error.params.get('code'),
+                                 log=str(error.params.get('log')))
+            # These assets are optional for 16:9 play. Publish nothing on failure, retain any installed overlays,
+            # and leave outputs unrecorded so the next setup run can retry generation.
+            return {'prepared': False}
+        plain_outputs(ctx)
+        # Every preset has been validated. Publish each manifest last, so an interrupted copy is detected by
+        # the runtime's resource hashes and the next install repairs it without recompiling the game.
+        for name in WIDE_FOLDERS:
+            folder = staged / name
+            for source in sorted(folder.rglob('*')):
+                if source.is_file() and source.name != 'manifest.tsv':
+                    copy_file(source, ctx.dest / name / source.relative_to(folder))
+            copy_file(folder / 'manifest.tsv', ctx.dest / name / 'manifest.tsv')
+        return {'outputs': {name: tree_key(ctx.dest / name) for name in WIDE_FOLDERS}}
+
+
+class PadPrompts(Step):
+    """The PlayStation button prompts (tools/dkb_ps_prompts.py): one overlay per face-button layout, from the user's font."""
+    id = 'dkb_prompts'
+
+    def key(self, ctx):
+        return digest(ctx.keys['dkb_data'], ctx.info['game'], PS_FOLDERS, source_key(ctx.layout, 'tools/dkb_ps_prompts.py'))
+
+    def current(self, ctx, record):
+        try:
+            return (set(record.get('outputs', {})) == set(PS_FOLDERS) and
+                    all((ctx.dest / name / 'manifest.tsv').is_file() and
+                        tree_key(ctx.dest / name) == record['outputs'][name] for name in PS_FOLDERS))
+        except OSError:
+            return False
+
+    def verify(self, ctx, record):
+        return self.current(ctx, record)
+
+    def run(self, ctx):
+        plain_outputs(ctx)
+        staged = ctx.temp / 'build' / 'ps-prompts'
+        owned_dir(ctx, staged)
+        try:
+            for name, layout in PS_FOLDERS.items():
+                run_tool(ctx, self.id, [ctx.layout.python, ctx.layout.tools / 'dkb_ps_prompts.py',
+                                        '--romfs', ctx.dest / 'romfs', '--out', staged / name, '--layout', layout,
+                                        '--installer-workspace', ctx.temp], name=f'{self.id}-{layout}')
+        except InstallError as error:
+            if error.id != 'dkb.tool_failed':   # path/ownership failures still stop setup
+                raise
+            ctx.reporter.warning('warn.dkb_prompts_failed', code=error.params.get('code'),
+                                 log=str(error.params.get('log')))
+            # Optional: the Switch prompts stay. Nothing is published and nothing recorded, so the next setup retries.
+            return {'prepared': False}
+        plain_outputs(ctx)
+        for name in PS_FOLDERS:   # each manifest last, as WideLayouts
+            folder = staged / name
+            for source in sorted(folder.rglob('*')):
+                if source.is_file() and source.name != 'manifest.tsv':
+                    copy_file(source, ctx.dest / name / source.relative_to(folder))
+            copy_file(folder / 'manifest.tsv', ctx.dest / name / 'manifest.tsv')
+        return {'outputs': {name: tree_key(ctx.dest / name) for name in PS_FOLDERS}}
+
+
+def fsr4_platform():
+    """AMD publishes the FSR 4 libraries for Windows only (docs/dkb-dlss.md)."""
+    return os.name == 'nt'
+
+
+class Fsr4(Step):
+    """AMD FSR 4's Vulkan libraries next to dkb.exe (installer/fsr4.py), only when the user asked for them and accepted
+    AMD's license of the pinned release: --fsr4 accept (the window asks first), recorded as state['fsr4'] = that release
+    so a later setup keeps them. --fsr4 off stops fetching them; files already there stay, and upscaler = fsr4 is still
+    the user's choice either way. A failed download warns and setup goes on with FSR 3.1; the next setup tries again."""
+    id = 'dkb_fsr4'
+
+    def key(self, ctx):
+        return digest('fsr4', ctx.state.get('fsr4') or 'off')
+
+    def current(self, ctx, record):
+        if not ctx.state.get('fsr4') or not fsr4_platform():
+            return True
+        try:   # sizes only here; verify hashes them
+            return record.get('files') is True and all(
+                (ctx.dest / name).stat().st_size == size for _, name, size, _ in (fsr4.LICENSE, *fsr4.FILES))
+        except OSError:
+            return False
+
+    def verify(self, ctx, record):
+        return not ctx.state.get('fsr4') or not fsr4_platform() or fsr4.installed(ctx.dest)
+
+    def run(self, ctx):
+        if not ctx.state.get('fsr4'):
+            return {'files': False}
+        if not fsr4_platform():
+            ctx.reporter.log('fsr4: AMD publishes no library for this system; nothing fetched')
+            return {'files': False}
+        for _, name, _, _ in (fsr4.LICENSE, *fsr4.FILES):
+            ensure_plain(ctx.dest / name)
+            ensure_plain(ctx.dest / (name + '.part'))
+        total = fsr4.total_bytes()
+        ctx.reporter.progress(self.id, 'dkb_fetch', 0, total, 'bytes', force=True)
+        try:
+            fsr4.fetch(ctx.dest, lambda done: ctx.reporter.progress(self.id, 'dkb_fetch', done, total, 'bytes'))
+        except fsr4.FetchError as error:
+            ctx.reporter.warning('warn.dkb_fsr4_failed', file=error.args[0], detail=error.args[1])
+            return {'files': False}   # not current: the next setup tries again
+        return {'files': True, 'tag': fsr4.TAG}
+
+
 class Prepare(Step):
     id = 'dkb_verify'
 
@@ -772,6 +1007,16 @@ class Prepare(Step):
             ensure_plain(ctx.dest / name)
         ini.write(ctx.dest, ctx.state['lang'], ctx.layout.ini_example, 'dkb.ini', fallback='totk.ini')
         run_tool(ctx, self.id, [ctx.dest / ('dkb' + EXE), '--selftest'])
+        # One shader-cache.pack instead of four loose files per shader (about 118,000 files on 3.2.0, which take half an
+        # hour to delete on Windows). The runtime reads the pack first and the loose files after it (gfx_shader.c, cache
+        # pack). Only a speed-up for copying and deleting, so a failure here is a warning.
+        try:
+            run_tool(ctx, self.id, [ctx.layout.python, ctx.layout.tools / 'pack_shader_cache.py', ctx.dest / 'shader-cache'],
+                     name=f'{self.id}-pack')
+        except InstallError as error:
+            if error.id != 'dkb.tool_failed':
+                raise
+            ctx.reporter.warning('warn.dkb_pack_failed', code=error.params.get('code'), log=str(error.params.get('log')))
         return {'selftest': True}
 
 
@@ -781,7 +1026,7 @@ class Cleanup(Step):
     def run(self, ctx):
         # Update 458752 keeps generated C and objects so a second install does not relift or recompile.
         keep = ctx.info['game'] != GAME
-        for name in ('data', 'xlate', 'dotnet-home', 'nuget') if keep else ('data', 'gen', 'build', 'xlate', 'dotnet-home', 'nuget'):
+        for name in ('data', 'build/wide-overlays', 'xlate', 'dotnet-home', 'nuget') if keep else ('data', 'gen', 'build', 'xlate', 'dotnet-home', 'nuget'):
             p = ctx.temp / name
             if p.exists():
                 owned_dir(ctx, p)
@@ -789,7 +1034,8 @@ class Cleanup(Step):
 
 
 def all_steps():
-    return [Check(), Data(), Translator(), Lift(), Compile(), Shaders(), Prepare(), Cleanup()]
+    return [Check(), Data(), Translator(), Lift(), Compile(), Shaders(), WideLayouts(), PadPrompts(), Fsr4(), Prepare(),
+            Cleanup()]
 
 
 def cancel(*_):
@@ -900,6 +1146,14 @@ def main(options):
                                     'dll_dir': str(layout.dlls[0].parent) if layout.dlls else None,
                                     'dotnet': str(info['dotnet'])}
         ctx.state['lang'] = ini.canonical_language(options.lang or ctx.state.get('lang') or 'en-US')
+        choice = getattr(options, 'fsr4', None)   # accept: the user accepted AMD's license of fsr4.TAG
+        if choice == 'accept':
+            ctx.state['fsr4'] = fsr4.TAG
+        elif choice == 'off':
+            ctx.state.pop('fsr4', None)
+        elif ctx.state.get('fsr4') not in (None, fsr4.TAG):
+            ctx.state.pop('fsr4', None)   # accepted for another release: its license is to be accepted again
+            rep.warning('warn.dkb_fsr4_new_release', release=fsr4.TAG)
         steps = all_steps()
         rep.emit('start', release=layout.release, mode=ctx.mode, dev=layout.dev, dest=str(dest), log=str(log),
                  game=info['game'], game_exe='dkb' + EXE, steps=[s.id for s in steps])

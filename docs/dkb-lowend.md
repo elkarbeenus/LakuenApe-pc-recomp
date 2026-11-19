@@ -3,6 +3,8 @@
 Measurements from `tools/lowend_bench.py`, which runs `dkb.exe` on the first N logical processors with the perf trace and
 the draw profile on, and prints one table. This page is the baseline the low-end work is compared against.
 
+For systems with 4 GB of VRAM and gaming laptops, see [4GB VRAM & Laptop Optimization Guide](4gb-vram-optimization.md).
+
 ## Baseline
 
 Bananza 1.0.0, first level, the scripted input of about 2.4 minutes, 70 s per run, RTX 5060 Ti, 16 GB of RAM, before the
@@ -107,6 +109,157 @@ Defaults chosen from these runs (13 November, build of bananza with the pre-impo
 | 8 logical processors, old defaults | 49.8 and 50.5 | 23.7 and 26.3 | 371 and 389 | |
 | 8 logical processors, `TOTK_REPLAY_THREADS=4` | 54.1 and 54.3 | 26.1 and 23.5 | 165 and 185 | |
 
-So `TOTK_REPLAY_THREADS` defaults to 4 from 8 logical processors (not on AMD, not measured there) and `TOTK_HEAP_LAZY`
+So `TOTK_REPLAY_THREADS` defaults to 4 from 8 logical processors (6 from 12, 3 from 4 since 18 November; on AMD only the RX 9070 and 9070 XT on the proprietary driver, the setup measured) and `TOTK_HEAP_LAZY`
 to 1 on Windows.
 - Run-to-run noise is about 2 fps, and 3 in the 1% low.
+
+## Linux: the write-back of GPU results (14 November)
+
+Measured on an RX 7900 XTX with RADV (Mesa 26.2.7) and a 16-thread CPU, standing still in the cave after the tutorial
+on 1.0.0 at 1920x1080: 5,230 draws a frame, the GPU busy about 5 ms a frame, and 46 to 47 fps. No thread was busy for a
+whole frame (the busiest, the one that replays, 51 % of a core in a 20 s `perf` sample), so the frame was waiting, not
+working: the game's threads waited 7.8 ms a frame on fences.
+
+Those fences are held up by the shadow storage's write-back (`vk_memory.c`, "shadow storage"): the frame reports about
+4,400 GPU writes into CPU-visible memory, a thousand 15,000-byte storage buffers among them, 15 MiB in all, and the
+completion thread copied each back with its own search of the pending list, its own locks and a write-protection
+fault per page, 6.7 ms of CPU a frame. `vk_gpu_written_many` does a submission's ranges in one pass.
+
+| Build | fps | Frame | Fence wait of the game's threads |
+| --- | --- | --- | --- |
+| one call per range | 46.8 and 47.1 | 21.3 ms | 7.8 ms |
+| one pass per submission | 56.9 and 57.1 | 17.6 ms | 4.5 ms |
+| the 15,000-byte write-backs skipped (a test, not a fix: the game reads some results back) | 59.8 and 59.8 | 16.7 ms | 2.2 to 3.8 ms |
+
+Ruled out in the same scene: `DKB_REPLAY_THREADS` 2, 4 and 8 (46 to 48 fps), the generated code at `-O2` instead of
+`-O1` (46.7 and 47.4 against 46.8), `DKB_REPLAY_ASYNC=1` (32 fps: the game falls to two vsyncs a frame) and
+`DKB_SHADOW=0` (2 fps on Linux, as the shadow storage's comment says). What is left on the replaying thread is the
+write-watch query before each submit, about 2.5 ms a frame over 530 MiB. Copying a GPU write back only when the CPU
+touches its pages would remove the rest of the write-back; the last table row is its upper bound here.
+
+Again on 3.2.0 (16 November, `bananza` dba3a15 without and with this change, the same card and driver): standing still
+in the first cave of Ingot Isle at 1920x1080, the game's own upscaler, frame generation off: 49.2 and 49.3 fps before,
+59.6 and 59.1 after; the slowest frame 71.5 and 64.5 ms before, 25.7 and 26.3 ms after; the replaying thread busy
+20.3 ms a frame before, 14.2 and 16.1 ms after.
+
+`DKB_WB_LAZY=1` (`wb_lazy = 1`, Linux, off by default) does that (`vk_memory.c`, "lazy write-back"): a storage
+buffer a shader wrote is not copied back at its fence; its pages are closed, and the first CPU access to one copies
+what it is owed and opens it. At the start of Ingot Isle on 3.2.0 (17 November, `bananza` 9ed1784 with it, RX 7900 XTX,
+Mesa 26.2.7, the default settings: the game's own upscaler from 1280x720 to 1920x1080, frame generation off, SDR),
+four runs each way in turn: render busy 18.42, 17.79, 18.44 and 17.49 ms off, 14.52, 13.40, 12.23 and 13.60 ms on,
+lower in every pair; 52.7, 55.1, 51.9 and 56.8 fps off, 55.7, 57.6, 59.1 and 56.7 on, higher in three pairs of four.
+About 12,000 pages stay closed and 14 MiB a frame is left uncopied, with 4 to 8 pages touched every 60 frames. In the
+crater scene the game already holds 60 fps, and it made no difference there. It stays off by default until more of
+the game has been played with it.
+
+## Layer -200 on 6 and 4 logical processors (18 November)
+
+A Ryzen 7 5700X held to its first 6 or 4 logical processors (the process starts with that affinity, so the runtime
+counts only those), RTX 5060 Ti, the layer -200 recording on a player's save (3.2.0), 1920x1080, 60 fps limit, warm
+caches. The second minute and the end move with where the recording ends, so the first minute compares best.
+
+| Logical processors, `TOTK_REPLAY_THREADS` | first minute fps | frames over 50 ms | second minute fps, 1% low |
+| --- | --- | --- | --- |
+| 16, default (6) | 57.4 | 9 | 60.0, 53.3 |
+| 6, 0 (the old default) | 40.1 and 40.3 | 169 and 155 | 42.8 and 48.2, 19.4 and 23.0 |
+| 6, 2 | 40.6 | 138 | 42.5, 20.0 |
+| 6, 3 (the new default) | 43.7 and 43.2 | 15 and 17 | 49.4 and 50.0, 27.4 and 27.4 |
+| 6, 4 | 43.7 and 43.6 | 20 and 25 | 53.8 and 48.3, 28.8 and 28.0 |
+| 4, 0 (the old default) | 37.6 | 203 | 36.9, 18.3 |
+| 4, 2 | 38.8 | 148 | 36.8, 18.1 |
+| 4, 3 (the new default) | 41.0 | 47 | 41.6, 21.2 |
+
+So from 4 logical processors the default is 3 threads. Below 60 fps the scene stays bound by the replay thread.
+
+### Where the replay's time goes on 6 logical processors
+
+Same setup, 3 threads, `TOTK_TRACE=perf`. In the heavy part (frames 1740 to 2800, about 24,000 draws a frame) the game
+presents every second vsync (33.3 ms) and the replay takes 20 to 26 ms a frame against 11.5 ms on 16 logical processors.
+
+- The workers record about 26,000 draws a frame at 1.5 to 1.7 us a draw, 33 to 43 ms of CPU a frame
+  (`slow frame ... slice workers by part`, CPU about equal to the wall time, so they are not preempted). On 16 logical
+  processors the cost per draw is the same; five workers share it.
+- The walk waits 10 to 15 ms a frame for held slices (`waits for held slices`: 700 to 880 ms per 60 frames, against 150
+  on 16). A probe of every wait by its cause and by the op the walk was in put nearly all of them at the take-back of a
+  released render target in `vk_texture.c` `entry_of`, reached from the target resolution of `CLEAR_COLOR` and
+  `CLEAR_DS` (about 4 a frame, about 3 ms each). Those targets share their storage with other entries and come back
+  with a new initialization serial, so the barrier is needed: a held slice's finalized slot at that address would
+  follow the taken-back entry instead of the one its pass saw (`slot_resolve`).
+- Tried without effect on the first minute (42.8 to 43.3 fps, 21 to 38 frames over 50 ms, inside the run-to-run
+  spread): letting the walk record held slices while it waits at those clears (it found none left to take: the
+  workers had them all in hand), finer slices (`(expected - drawn) / 8`) so it found some (about 10 a frame),
+  `TOTK_PAR_DEFER_DEPTH=1`, and `TOTK_PAR_DEFER=0`.
+- The process uses 3.3 to 4 logical processors of the 6 in that part, and the four busiest threads (the walk, the two
+  workers and the game's main thread) about half a processor each. Six logical processors are three cores, so the
+  workers and the game's threads share cores through SMT; a fourth replay thread made each draw slower (1.8 to 1.9 us),
+  which is why 4 threads matched 3.
+- Reaching 60 fps there needs the frame's CPU work (about 80 ms over every thread) to fall by a third, which means a
+  cheaper draw on the workers: by `DKB_DRAW_PROFILE` no one section dominates a slice's 1.7 us (bind-sig 250 ns, sets
+  225, vertex buffers 230, uniform buffers 210, the other ops 270).
+- The level transition (frames 1530 to 1620, about 9 draws a frame) replayed in 11 to 12 ms a frame on 6 logical
+  processors against 0.2 ms on 16, under "rest of the walk" with the CPU busy (up to 77 ms of CPU in a 125 ms replay).
+  The time was the walk's `rec_drain` at the end of each submission: the recorder had 0.1 ms of work but woke 5 to 30
+  ms after its event was set, while the walk spun and yielded. During the load six of the game's threads keep every
+  logical processor busy at normal priority, as did the recorder and the replaying thread, so each waited a quantum
+  behind them (a sampling profile hid it: the sampler's own thread changed the scheduling, and those frames replayed in
+  under 1 ms). The recorder now runs at the highest priority and `submit_record` raises the replaying thread above
+  normal for the replay. Transition window replay 0.25 and 0.23 ms a frame (was 11 to 12.4), first minute 43.8 and
+  43.5 fps with 15 and 21 frames over 50 ms (was 42.7 to 42.9 fps, 19 to 30); on 16 logical processors 58.5 fps, 6
+  over 50 ms. What is left over 50 ms in the first minute is the game's own loading outside the replay and the first
+  frame of the heavy part (pool imports).
+- A sampling profile of the slices (`TOTK_PROFILE`) put the binary search of `vk_usnap.c` `first_above` at about half
+  of `bind_resources`' own samples: every uniform binding of every draw asks it. Four cuts of redundant per-draw work
+  followed: the search starts from its last answer for the address's 64 KiB block; an index buffer the command buffer
+  has bound already is not bound again, and only the changed range of the 17 vertex bindings is; `TOTK_DESC_C0_SERIAL`
+  and `TOTK_DESC_STAGE_ORIGIN`, measured gains left off, are on; and `vk_pipeline_set_dynamic_from` records only the
+  dynamic states whose inputs differ from the last recorded ones, across pipeline binds too, since every replay pipeline
+  has the same dynamic states. `DKB_DRAW_PROFILE` slices: 1809 ns a draw before, 1559 after (uniform buffers 248 to
+  163, state 147 to 106, vertex buffers 146 to 112, other ops 266 to 230). Two runs each at 3F: replay 0.99 and 0.96 us
+  a draw in the heavy part before, 0.89 and 0.89 after; first minute 43.8 and 43.6 fps before, 43.5 and 43.6 after
+  (the heavy part still presents every second vsync), frames over 50 ms 22 and 23 before, 14 and 16 after; second
+  minute 50.8 and 49.1 fps before, 53.5 and 55.1 after.
+
+## Weak GPU (clock locked at 900 MHz)
+
+The RTX 5060 Ti with its graphics clock locked at 900 MHz (`nvidia-smi -lgc 210,900`, by an administrator) stands in
+for a weak GPU: about a third of its boost clock. Same layer -200 recording on a player's save (3.2.0), 16 logical
+processors, 60 fps limit, warm caches, the game's own upscaler, frame generation off, SDR. `gpu avg` is the perf
+trace's GPU time per frame in the heavy part (frames 1800 to 3000).
+
+| Output, `scene_res` | 3D scene | first minute fps | second minute fps | `gpu avg` (ms) |
+| --- | --- | --- | --- | --- |
+| 1920x1080, auto (default) | 931x524 to 1280x720 | 55.8, 55.8, 55.5 | 58.7, 58.9, 58.6 | 9.3 to 9.7 |
+| 1920x1080, full | 1920x1080 | 54.3 | 56.5 | 11.6 to 11.8 |
+| 2560x1440, auto | 1241x699 to 1706x960 | 52.6 | 56.8 | 11.7 to 12.0 |
+| 2560x1440, full | 2560x1440 | 50.8, 51.1, 50.7 | 50.2, 51.0, 49.9 | 14.8 to 15.3 |
+
+`TOTK_PASS_GPU=1` (`docs/dkb-testing.md`) splits the GPU time by pass and op. In the heavy part at 1920x1080 auto,
+per frame: the scene passes at the 3D size about 3.6 ms (two 2-target passes 2.2 ms, about seven 3-target passes 1.3
+ms), dispatches 3.0 ms in 87 a frame (one compute shader 1.5 ms in 43 dispatches of about 34 us, its count following
+the terrain: 6 to 76 a frame), 35 colour clears 0.33 ms, the shadow map 0.2 ms, 17 post-process passes at 1280x720
+0.2 ms. At 2560x1440 full the 3-target passes take 3.9 to 5.0 ms and the 2-target ones 2.4 ms: the scene's own
+shading grows with its size, and that is where a weak GPU goes.
+
+What the runtime adds is small next to that:
+
+- The mirror prologues (guest memory copied to the GPU before a part) 0.19 ms, uploads 0.02 to 0.07 ms, the window's
+  present 0.06 to 0.09 ms. No depth twin was copied in this scene.
+- The full barrier before each pass, clear and dispatch (`vk_exec.c` `barrier_to`), as yuzu and Eglantine end every
+  render pass with one: what runs between a pass's end and the next mark is about 1 ms at a full-size scene. At a
+  scaled scene the figure reads 3.1 ms, but the sum of all keys then runs 2.4 ms over `gpu avg`; held-back parts of
+  one submission complete in one callback, so that line counts some time twice.
+- `TOTK_CS_BARRIER=1` and `game` changed nothing here (2.95 and 2.84 ms of dispatches against 3.03, 50.8 fps at
+  2560x1440 full against 50.8): the dispatches follow passes, not other dispatches, so the full barrier before them
+  stays.
+- Depth-stencil D24S8 is drawn as D32S8 (`vk_formats.c`), on two passes a frame at the full size (0.13 ms at 931x524,
+  0.83 ms at 2560x1440). Using D24S8 where the device has it would change depth precision, so it is not a change
+  without a rendering difference.
+
+The GPU is not what holds the default setting back: at 1920x1080 auto it is busy 9.4 ms of a 16.7 ms frame, and the
+first minute's misses come from the level transition and the first frames of the heavy part. At 2560x1440 full it is
+busy 15 ms of a 20 ms frame (50 fps).
+
+Recommended for a weak GPU: `scene_res = auto`, so the game's dynamic resolution draws the scene at two thirds of the
+output on each side, with the game's own upscaler (the default; DLSS and FSR were not measured here). `full` costs 2.3
+ms a frame of GPU time at 1920x1080 and 3.3 ms at 2560x1440. Each step up in output resolution costs about as much as
+`full` at the step below: keep the output at the monitor's size, and lower it before turning `full` on.

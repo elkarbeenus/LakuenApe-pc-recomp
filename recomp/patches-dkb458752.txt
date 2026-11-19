@@ -29,7 +29,7 @@ site realtime main 6b8260 1e201820 f81f0fe9 @page:x9 bd400920 f84107e9  # second
 # (any rate above 60 fps) truncates to 0, so the entry was never released and its blur stayed on screen (#158).
 # runtime/frame_rate.c blur_frames (patch page +0x250) keeps the fraction per entry and returns the whole frames in w8.
 # The function saves LR in its prologue (main+426e94), so the BL keeps its return.
-site realtime main 426f54 1e380008 948fa4bf  # fcvtzs w8, s0 in the blur entry update  [3.2.0 only]
+site realtime main 426f54 1e380008 948fa4bf  # fcvtzs w8, s0 in the blur entry update  [1.0.0 40e944]
 
 # The player's damped velocity update (main+13fad60; its eight callers are the player's movers, the wall and ceiling
 # climbs among them) steps v = r^step * v + sum of r^i * target for i = 1 .. step: it adds the target once per whole
@@ -46,7 +46,8 @@ site realtime main 13fada4 2f00e409 d503201f  # movi d9, #0
 
 # Optional Bananza virtual display and camera aspect. Values are supplied by
 # runtime/dkb_wide.c at page +0x100 (width), +0x104 (height), +0x108 (aspect),
-# +0x10c (aspect / 16:9), +0x110 (render-target pool bytes).
+# +0x10c (aspect / 16:9), +0x110 (render-target pool bytes), +0x114 and +0x11c
+# (the UI projection's x and y divisors).
 set dkbwide DKB_ULTRAWIDE 0
 
 # al::getVirtualDisplayWidth / Height. The retail base uses 2880 by 1620.
@@ -66,21 +67,35 @@ site dkbwide main 462504 f2a7fc68 @page:x8 b9410908  # 1.0.0 522e44
 # s8 is restored immediately afterwards; s16 and x8 are caller-saved scratch.
 site dkbwide main 45d5d4 bd010008 @page:x8 bd410d10 1e300910 bd010010  # 1.0.0 51e0c4
 
-# Widen fresh UI projections before DrawInfo::SetProjectionMtx copies them.
-# The first matrix row maps authored layout x to clip space. Saved projections
-# are restored through the same setter, so changing the setter would repeatedly
+# Fit fresh UI projections to the display before DrawInfo::SetProjectionMtx copies them.
+# The first matrix row maps authored layout x to clip space and the second y: row 0 is
+# divided by page +0x114 and row 1 by page +0x11c. A display wider than 16:9 has
+# aspect / 16:9 and 1.0 there (row 1 divided by 1.0 is unchanged), a taller one 1.0 and
+# 16:9 / aspect, which keeps the 1920x1080 canvas in a centred 16:9 band; 16:9 has 1.0 in
+# both. Saved projections are restored through the same setter, so changing the setter would repeatedly
 # narrow the HUD. These four sites copy a newly computed sead projection into
 # temporary storage instead. Keep the other matrix rows and all scratch intact.
 # main+ea8a0 also projects local layout captures (dialogue backgrounds, text
 # effects and icon shadows). Those textures retain their authored dimensions.
 # Only widen its full 1920x1080 canvas: m00 == 2/1920 and m11 == 2/1080.
 # Compare both lanes, broadcast their combined mask, and BSL the widened row
-# against the original. This leaves capture rows bit-identical, preserves NZCV,
-# and restores x8 and q16-q19 from the 80-byte temporary stack frame.
-site dkbwide main b1260 9400002d adbf47f0 adbf4ff2 f81f0fe8 3dc00030 bd401431 52911128 72a75108 1e270112 4e32e612 52973ac8 72a75e48 1e270113 4e33e633 4e331e52 4e040652 @page:x8 bd410d11 4e040631 6e31fe11 6e701e32 3d800032 f84107e8 acc14ff2 acc147f0 9400002d  # 1.0.0 ea8a0
-site dkbwide main 45f9dc 97f1464e adbf47f0 f81f0fe8 @page:x8 3dc00030 bd410d11 4e040631 6e31fe10 3d800030 f84107e8 acc147f0 97f1464e  # 1.0.0 52047c
-site dkbwide main 803c94 97e2b5a0 adbf47f0 f81f0fe8 @page:x8 3dc00030 bd410d11 4e040631 6e31fe10 3d800030 f84107e8 acc147f0 97e2b5a0  # 1.0.0 7ec2ec
-site dkbwide main 170e2f4 97a68c08 adbf47f0 f81f0fe8 @page:x8 3dc00030 bd410d11 4e040631 6e31fe10 3d800030 f84107e8 acc147f0 97a68c08  # 1.0.0 15209d4
+# against the original, for row 0 and (with a copy of the mask) row 1. This leaves
+# capture rows bit-identical, preserves NZCV, and restores x8 and q16-q19 from the 80-byte temporary stack frame.
+site dkbwide main b1260 9400002d adbf47f0 adbf4ff2 f81f0fe8 3dc00030 bd401431 52911128 72a75108 1e270112 4e32e612 52973ac8 72a75e48 1e270113 4e33e633 4e331e52 4e040652 @page:x8 bd411511 4e040631 6e31fe11 4eb21e53 6e701e32 3d800032 3dc00430 bd411d11 4e040631 6e31fe11 6e701e33 3d800433 f84107e8 acc14ff2 acc147f0 9400002d  # 1.0.0 ea8a0
+site dkbwide main 45f9dc 97f1464e adbf47f0 f81f0fe8 @page:x8 3dc00030 bd411511 4e040631 6e31fe10 3d800030 3dc00430 bd411d11 4e040631 6e31fe10 3d800430 f84107e8 acc147f0 97f1464e  # 1.0.0 52047c
+site dkbwide main 803c94 97e2b5a0 adbf47f0 f81f0fe8 @page:x8 3dc00030 bd411511 4e040631 6e31fe10 3d800030 3dc00430 bd411d11 4e040631 6e31fe10 3d800430 f84107e8 acc147f0 97e2b5a0  # 1.0.0 7ec2ec
+site dkbwide main 170e2f4 97a68c08 adbf47f0 f81f0fe8 @page:x8 3dc00030 bd411511 4e040631 6e31fe10 3d800030 3dc00430 bd411d11 4e040631 6e31fe10 3d800430 f84107e8 acc147f0 97a68c08  # 1.0.0 15209d4
+
+# Vert+ for displays taller than 16:9 (runtime/dkb_wide.c vert_plus, set on only for them). The camera's projection
+# update turns the vertical field of view in degrees (CameraPoseUpdater +0x104) into radians with this fmul, then
+# derives its half-angle sine, cosine and tangent and the frustum from s10. After the fmul a BL to patch page +0x270
+# widens s10 so that tan(fovy/2) is divided by aspect / 16:9 (page +0x10c): with the aspect the dkbwide setter gives
+# the camera, the horizontal view stays the 16:9 one and the taller display sees more above and below. Both functions
+# save LR in their prologues, so the BL keeps their returns. The BL assumes the patch page is at main+0x2810000
+# (recomp/layout.py).
+set dkbtall DKB_TALL 0
+site dkbtall main 45e244 1e21080a 1e21080a 948ec80b  # fmul s10, s0, s1 in the camera projection reset  [1.0.0 51ed5c]
+site dkbtall main 4db8b0 1e21080a 1e21080a 948cd270  # fmul s10, s0, s1 in the camera projection update  [1.0.0 44eac0]
 
 set mousecamera TOTK_MOUSE_CAMERA 0
 
@@ -96,6 +111,8 @@ site mousecamera main 80a3fc 6d42a3e9 6d42a3e9 9480178d  # pitch end: x19 is the
 
 # Let vertical mouse activity interrupt the same waiting states as stick input.
 site mousecamera main 5e949c 2d4e0660 2d4e0660 94889b69  # Interp manual input check  [1.0.0 5ef070]
+site mousecamera main 192b22c bd407260 bd407260 943b9405  # automatic pitch state manual input check  [1.0.0 173535c]
+site mousecamera main 192b3dc bd407260 bd407260 943b9399  # automatic pitch blend manual input check  [1.0.0 173550c]
 site mousecamera main 192b690 bd407260 bd407260 943b92ec  # SnapEnd manual input check  [1.0.0 17357c0]
 # AcceptRequest loads s0 from [x0, #0x70] at 1735878, before the kept mov x19, x0.
 # The comparisons at 1735884 and 1735898 consume that value against -0.15 and +0.15
@@ -144,3 +161,105 @@ site dkbscene main 38df08 bd400120 @page:x9 bd411920  # 1.0.0 3c1624
 set render3d DKB_RENDER3D 0
 site render3d main 79024 bd41b100 @page:x10 bd412140  # ldr s0, [x10, #0x120] in place of ldr s0, [x8, #0x1b0]
 site render3d main 79028 bd41b501 bd412541  # ldr s1, [x10, #0x124] in place of ldr s1, [x8, #0x1b4]
+
+# Text box per-character transform setter main+0x86d848 (1.0.0 main+0x84cd40, same 15 words): the null +0x150
+# block guards of patches-dkb100.txt (issues 157, 206, 173), placed by hand because tools/port_patches.py does not
+# port guards. Opt-out: DKB_FIX_FLCT_GUARD=0.
+set flctguard DKB_FIX_FLCT_GUARD 1
+guard flctguard main 86d858 86d868 ptr x8 bd000100
+guard flctguard main 86d870 86d880 ptr x8 bd000500
+
+# Parallel pool-entry loop main+0x429480 (1.0.0 main+0x410680, the same code shifted by 0x18e00; the words differ
+# only in adrp, page offsets and bl targets): the stale layer record and cell guards of patches-dkb100.txt
+# (issue 126), placed by hand. The same faults at 429bf0 and 42956c closed the game with code 71 in issue 218.
+# Opt-out: DKB_FIX_POOL_GUARD=0.
+set poolguard DKB_FIX_POOL_GUARD 1
+guard poolguard main 429bf0 429b4c ptr x9 f9401927 st32 x29 -2c ffffffff
+guard poolguard main 42955c 429b4c vcall x9 b940028a
+guard poolguard main 429ce0 42a44c ptr x20 aa1403e0
+guard poolguard main 429594 429c54 ptr x10 f875794a
+# #218 crash 2, f_700011a7e0 (1.0.0 f_7000108020, -0x127c0): an empty node free list gives a null node at 11acd0;
+# the guard continues the id loop at 11ac28.
+guard poolguard main 11acd0 11ac28 ptr x8 f9400909
+# #317: the edge loop of the job graph builder f_70001114a0 (1.0.0 f_700011d680, +0xc1e0) looks both ends of each
+# edge up in the graph's node table (+0x28): the source into x13 (111670), the target into x12 (111674). A null target
+# slot faulted at 1116d4 (its pending count at +0x28); with that guarded, a null source slot of the next edge faulted
+# at 1116a4 (its link list at +0x18). Both were slots the build had not filled, at the last edges of the description.
+# The guards check the source before the target is loaded (111674) and the target before the link slot is taken
+# (ldadd at 111678), and go to the loop's next edge (1116fc), the path the code already takes when the link pool is
+# full (runtime/patches.c rt_guard_edge).
+guard poolguard main 111674 1116fc edge x13 f86cd9ec
+guard poolguard main 111678 1116fc edge x12 b82b01ce
+
+# #136 (1.0.0 main+0x1692c00): the call to f_7000474574 (1.0.0 f_7000534324) in the 3.2.0 walk, skipped to the loop tail at 1887e4c.
+guard poolguard main 1887df0 1887e4c ptr x0 97afb1e1
+
+# #229: the per-record table loads of f_7000a55520 (1.0.0 f_7000a37520, -0x1e000): the guards of patches-dkb100.txt.
+# Opt-out: DKB_FIX_RECORD_GUARD=0.
+set recguard DKB_FIX_RECORD_GUARD 1
+guard recguard main a55a84 a58388 ptr x10 3dc00140
+guard recguard main a55a9c a58388 ptr x11 3dc00160
+
+# #214 fontk (1.0.0 sites in brackets): the text raster at 2x, as in patches-dkb100.txt, which explains the method.
+# Placed by hand: the cache class gained a second glyph engine at +0x1ed0 in 3.2.0, so the fill, the width query and
+# the cache init are restructured (register allocation, merged blocks) and only the kerning query and the descriptor
+# default keep the 1.0.0 words. The +0x1ed0 engine is the descriptor's +0x8c8, which the default (f_7000554b80) clears
+# and neither of its callers (553a40, 554578) sets, so only the nn::fontll paths are patched; where a block is shared
+# with the +0x1ed0 path (the ascent at 747d70, the fill's multiplier and table loads, the width tail at 886ffc) that
+# path is not taken. Off by default; DKB_FONT_SCALE=1 turns it on.
+set fontk DKB_FONT_SCALE 0
+# SetScale (PLT 1b7b460), lsl #(16 + (size - 97 >> 31)): cache fill (size ldrh'd from node +0x36 into w8) [6f85a0].
+site fontk main 747d10 53103d01 51018501 531f7c21 11004021 1ac12101
+# Width query f_7000886f00 [86f42c]: the size w22 masked where it is set [86f450], then SetScale [86f4c4].
+site fontk main 886f2c 2a0203f6 12003c56   # mov w22, w2 -> and w22, w2, #0xffff
+site fontk main 887060 53103ec1 510186c1 531f7c21 11004021 1ac122c1
+# Kerning query f_700088724c [86f658], the same words (size w20, masked into the scratch register).
+site fontk main 8873d8 53103e81 12003e81 51018421 531f7c21 11004021 1ac12281   # [86f7e4]
+site fontk main 887454 53103e81 12003e81 51018421 531f7c21 11004021 1ac12281   # [86f860]
+site fontk main 8874dc 53103e81 12003e81 51018421 531f7c21 11004021 1ac12281   # [86f8e8]
+# Init f_7000581590 [49e1d0], fontll path: multipliers halved (s1 dead, reloaded at 582018 or written before any read).
+site fontk main 5820c0 bd001140 1e2c1001 1e210800 bd001140   # [49ebc8]
+site fontk main 5820d0 bd001540 1e2c1001 1e210800 bd001540   # [49ebd8]
+# Pixel tables 1c10 and 1c28 stored doubled; w10 and w8 are rewritten by the next instruction.
+site fontk main 581c8c 7839796a 531f794a 7839796a   # [49e75c]
+site fontk main 581cc0 78397928 531f7908 78397928   # [49e794]
+# Ascent (ucvtf of the size ldr'd from node +0x36): shifted left by (size - 97 >> 31). x10 holds the entry here, so
+# the scratch is w9 (last read at 747d60, next written at 747d98) and w12 (read at 747d6c, next written at 747da8).
+site fontk main 747d70 7e21d821 1e260029 5101852c 531f7d8c 1acc2129 1e230121   # [6f85d0]
+# Fill: the multiplier pair ldp s10, s8 times 2^bit through w9 (rewritten at 747f70) and w10 (dead after 747f68).
+site fontk main 747f6c 2d42212a 2d42212a 79406f89 4b0903e9 11018129 531f7d29 53092129 1e26014a 0b09014a 1e27014a 1e26010a 0b09014a 1e270148   # [6f87e8]
+# Fill: pixel tables shifted right by bit through w11 (not read in the function before its write at 74835c). 748048
+# is the 1c10 load of the path that 1.0.0 sends through 6f8950 and 3.2.0 sends past 748120 to 748128.
+site fontk main 747fc8 78e8794a 78e8794a 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb294a   # [6f8844]
+site fontk main 747fe4 78687929 78e87929 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb2929 12003d29   # [6f8860]
+site fontk main 748004 78e87929 78e87929 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb2929   # [6f8890]
+site fontk main 748020 78e87929 78e87929 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb2929   # [6f88ac]
+site fontk main 748048 78e8794a 78e8794a 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb294a   # [6f8950, other path]
+site fontk main 748120 78e8794a 78e8794a 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb294a   # [6f8950]
+site fontk main 748140 78687929 78e87929 79406f8b 4b0b03eb 1101816b 531f7d6b 1acb2929 12003d29   # [6f8970]
+# Width query: the multiplier times (bit ? 2.0 : 1.0) through w10 (dead after 887004; w8 is live here, unlike 1.0.0)
+# and s1 (written at 887018), the 1c10 table shifted right by bit through w10 [86f530, 86f538].
+site fontk main 887008 bd401120 bd401120 4b1603ea 1101814a 531f7d4a 5309214a 3209194a 1e270141 1e210800
+site fontk main 887010 78f47929 78f47929 4b1603ea 1101814a 531f7d4a 1aca2929
+# Kerning query multipliers [86f830, 86f8ac, 86f94c, 86f9b8].
+site fontk main 887424 bd401128 bd401128 12003e89 4b0903e9 11018129 531f7d29 53092129 32091929 1e270121 1e210908
+site fontk main 8874a0 bd401128 bd401128 12003e89 4b0903e9 11018129 531f7d29 53092129 32091929 1e270121 1e210908
+site fontk main 887540 bd401100 bd401100 12003e88 4b0803e8 11018108 531f7d08 53092108 32091908 1e270102 1e220800
+site fontk main 8875ac bd401100 bd401100 12003e88 4b0803e8 11018108 531f7d08 53092108 32091908 1e270102 1e220800
+# Raster work buffer x4 in the descriptor default [473cf0]: one engine, as on 1.0.0. f_7000554b80's callers are the
+# two paths of one builder: 553a40 in it and 554578 in the font-list parser f_7000554520 it calls.
+site fontk main 554e90 52a00109 52a00409
+# Glyph cache texture x2 each way [49e4a0, 49e4ac]; w9 is stored to +0x28/+0x2c and rewritten.
+site fontk main 5818b8 b9400369 b9400369 531f7929
+site fontk main 5818c8 b9400769 b9400769 531f7929
+
+# Native anti-aliasing (docs/dkb-testing.md, scene_res): the game's upscaler level, in its settings at +0x10, is 0
+# while the 3D is drawn at the output size, and the upscale step (f_7000325a80, called from the frame step
+# f_7000323504 every frame) then skips its dispatch; at a scaled 3D the level is 2. Read as 2 at both of the step's
+# loads, the dispatch runs at full size too, from the 3D to an image of the same size, and a temporal upscaler takes it
+# as anti-aliasing alone. The dispatch is issued by f_7000325f30, which runtime/dkb_wide.c dkb_native_aa_issued_by
+# names so that vk_exec_draw.c game_upscaler takes a same-size dispatch from there and from nowhere else. The runtime
+# turns the set on (dkb_native_aa_live) with FSR 3.1, FSR 4 or DLSS chosen and scene_res = full. 3.2.0 addresses only.
+set dkbnative DKB_NATIVE_AA 0
+site dkbnative main 325bb0 b94012c8 52800048  # ldr w8, [x22, #0x10] -> mov w8, #2
+site dkbnative main 325d10 b9401289 52800049  # ldr w9, [x20, #0x10] -> mov w9, #2

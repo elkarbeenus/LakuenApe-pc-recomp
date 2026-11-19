@@ -25,6 +25,40 @@ typedef struct { const char *lang; const char *const *text; } Row;
     [UI_SWKBD_CANCEL] = cancel, [UI_SWKBD_PAD_HINT] = hint, LANG_NAMES
 
 static const char *const text_en[UI_TEXT_COUNT] = {
+    [UI_MENU_SPLASH_STARTING] = "STARTING UP", [UI_MENU_SPLASH_SHADERS] = "PREPARING SHADERS",
+    [UI_MENU_SPLASH_PIPELINES] = "BUILDING PIPELINES", [UI_MENU_SPLASH_GAME] = "STARTING THE GAME",
+    [UI_MENU_SPLASH_COUNT_SHADERS] = "%s of %s shaders", [UI_MENU_SPLASH_COUNT_PIPELINES] = "%s of %s pipelines",
+    [UI_MENU_SPLASH_LEFT_SECONDS] = "about %d s left for this step",
+    [UI_MENU_SPLASH_LEFT_MINUTES] = "about %d min left for this step",
+    [UI_MENU_SPLASH_VERSION] = "v%s  \xc2\xb7  game %s",
+    [UI_MENU_SPLASH_TIP_FULLSCREEN] = "F11 switches between a window and full screen.",
+    [UI_MENU_SPLASH_TIP_SETTINGS] = "In the game, F1 or Esc opens the settings, and so does a gamepad's Home button.",
+    [UI_MENU_SPLASH_TIP_OVERLAY] = "In the game, F10 shows the performance overlay.",
+    [UI_MENU_SPLASH_TIP_GRAPHICS] = "The upscaler and HDR are on the Graphics tab of the settings.",
+    [UI_MENU_SPLASH_TIP_FRAME_RATE] = "The frame rate limit and frame generation are on the Display tab of the settings.",
+    [UI_MENU_SPLASH_TIP_REMAP] = "Buttons and keys can be remapped on the Controls tab of the settings.",
+    [UI_MENU_SPLASH_TIP_KEPT] = "What is prepared now is kept, so the next starts are quicker.",
+    [UI_MENU_SPLASH_TIP_TABS] = "In the settings, Q and E switch between the tabs.",
+    [UI_MENU_PAD_DEVICE] = "Controller Device",
+    [UI_MENU_PAD_DEVICE_DESC] = "Choose which controller to use. Changes take effect immediately.\n\n"
+        "Newly connected controllers take over automatically. If the active controller disconnects, another available controller takes over.\n\n"
+        "Manual choices apply immediately and are saved for startup. Auto starts with the first available controller. Later connections can still take over.\n\n"
+        "Keyboard and mouse remain available.",
+    [UI_MENU_PAD_FULLSCREEN_HOLD] = "Fullscreen hold shortcut",
+    [UI_MENU_PAD_FULLSCREEN_HOLD_DESC] = "Off: Plus + Minus opens or closes settings.\n\nOn: hold Plus + Minus for 0.5 seconds to toggle fullscreen instead.\n\nGuide/Home and keyboard F1 remain available in either mode.",
+    [UI_MENU_SHORTCUT_SETTINGS_COMBO_DESC] = "Press both displayed Plus and Minus bindings together to open or close settings.\n\nThis shortcut follows the current button bindings.\n\nKeyboard equivalent: F1.",
+    [UI_MENU_SHORTCUTS] = "Shortcuts",
+    [UI_MENU_SHORTCUT_READONLY] = "Read-only shortcuts",
+    [UI_MENU_SHORTCUT_SETTINGS] = "Open settings menu",
+    [UI_MENU_SHORTCUT_SETTINGS_DESC] = "Press the Guide or Home button to open or close settings.\n\nKeyboard equivalent: F1.\n\nThe client or operating system must pass this button to the game.",
+    [UI_MENU_SHORTCUT_FULLSCREEN] = "Toggle fullscreen",
+    [UI_MENU_SHORTCUT_FULLSCREEN_DESC] = "Hold both displayed buttons together for 0.5 seconds to toggle fullscreen.\n\nRelease both before repeating.\n\nKeyboard equivalent: F11.",
+    [UI_MENU_SHORTCUT_PERFORMANCE] = "Toggle performance data",
+    [UI_MENU_SHORTCUT_PERFORMANCE_DESC] = "Press both stick-click bindings together to cycle performance data: Off, FPS, Full, then Breakdown.\n\nThis shortcut follows the current stick-click bindings.\n\nKeyboard equivalent: F10.",
+    [UI_MENU_PAD_CONNECTED] = "Connected",
+    [UI_MENU_PAD_WAITING] = "Connect a controller to resume",
+    [UI_MENU_PAD_NONE] = "No controller connected",
+    [UI_MENU_PAD_SAVED] = "Saved controller",
     SWKBD("Text entry", "Enter a name", "Horse", "OK", "Cancel", "Controller: A = OK, B = Cancel"),
 
     [UI_MENU_TITLE] = "Settings",
@@ -50,13 +84,35 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                              "Immediate sends frames as soon as they are ready and can cause tearing.",
     [UI_MENU_PRESENT_MAILBOX] = "Mailbox", [UI_MENU_PRESENT_VSYNC] = "VSync", [UI_MENU_PRESENT_IMMEDIATE] = "Immediate",
     [UI_MENU_PRESENT_IN_USE] = "in use: %s",
+    [UI_MENU_FRAME_GEN] = "Frame generation (experimental)",
+    [UI_MENU_FRAME_GEN_DESC] = "Shows generated frames between each two of the game's frames for smoother motion, at the cost of some input delay. "
+                               "Fast motion and camera cuts can show artifacts.\n\n"
+                               "Off: only the game's own frames, no added delay. Automatic: a frame for each refresh of the display, "
+                               "shown one game frame later. 2x to 8x: that many frames for each of the game's, and no more than the display can show.\n\n"
+                               "It needs Frame sync set to Mailbox or Immediate. "
+                               "Generated frames are left out after a hitch and when the game's next frame is already waiting.",
+    [UI_MENU_FRAME_GEN_2X] = "2x", [UI_MENU_FRAME_GEN_3X] = "3x", [UI_MENU_FRAME_GEN_4X] = "4x", [UI_MENU_FRAME_GEN_5X] = "5x",
+    [UI_MENU_FRAME_GEN_6X] = "6x", [UI_MENU_FRAME_GEN_7X] = "7x", [UI_MENU_FRAME_GEN_8X] = "8x",
+    [UI_MENU_FRAME_GEN_VSYNC] = "inactive with VSync",
+    [UI_MENU_FRAME_GEN_BY] = "Frame generation made by",
+    [UI_MENU_FRAME_GEN_BY_DESC] = "Built-in makes the frames from the picture alone. AMD FSR 3.1 also uses the scene's depth and motion "
+                                  "and an optical flow, which takes more GPU time. It makes the 2x frames only.\n\n"
+                                  "AMD's needs a temporal upscaler (DLSS, FSR 3.1 or FSR 4) with the 3D drawn below the output size; "
+                                  "a frame it cannot make gets the built-in one.",
+    [UI_MENU_FRAME_GEN_BUILTIN] = "Built-in", [UI_MENU_FRAME_GEN_FSR3] = "AMD FSR 3.1",
+    [UI_MENU_FRAME_GEN_BY_NEEDS] = "needs DLSS, FSR 3.1 or FSR 4 with the 3D below the output size",
     [UI_MENU_GPU] = "Graphics card", [UI_MENU_GPU_DESC] = "Choose which graphics card runs the game. Use Automatic unless you need to select a specific card.",
     [UI_MENU_GPU_AUTO] = "Automatic",
     [UI_MENU_PERF_OVERLAY] = "Performance overlay",
-    [UI_MENU_PERF_OVERLAY_DESC] = "Shows FPS in the top right. Full also shows a frame time graph and hardware statistics. Press F10 to cycle through the modes.",
-    [UI_MENU_PERF_OFF] = "Off", [UI_MENU_PERF_FPS] = "FPS", [UI_MENU_PERF_FULL] = "Full",
+    [UI_MENU_PERF_OVERLAY_DESC] = "Shows FPS in the top right. Counter shows it as a large number with no background. Full also shows a frame time graph and hardware statistics. "
+                                  "Breakdown splits each frame in the graph into its parts: the game's own work, the GPU frame prep, "
+                                  "the waits by what was waited for, and the frame rate limit. Press F10 to cycle through the modes.",
+    [UI_MENU_PERF_OFF] = "Off", [UI_MENU_PERF_FPS] = "FPS", [UI_MENU_PERF_FULL] = "Full", [UI_MENU_PERF_BREAKDOWN] = "Breakdown",
+    [UI_MENU_PERF_COUNTER] = "Counter",
     // printf format of the overlay line in FPS mode: the frame rate
     [UI_PERF_LINE_FPS] = "%.0f fps",
+    // the small label beside the number in Counter mode
+    [UI_PERF_FPS_LABEL] = "FPS",
     [UI_MENU_RESOLUTION_GROUP] = "Resolution",
     [UI_MENU_DISPLAY_OUTPUT] = "Display output",
     [UI_MENU_RENDER_OPTIONS] = "Render Options",
@@ -87,27 +143,51 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                "sharper picture at a higher GPU cost, and the upscaler and DLSS are not used. Applies at the next start.",
     [UI_MENU_SCENE_RES_AUTO] = "Auto (game)", [UI_MENU_SCENE_RES_FULL] = "Full",
     [UI_MENU_UPSCALER] = "Upscaling method",
-    [UI_MENU_UPSCALER_DESC] = "This applies when the game image is smaller than the area it fills on your screen or in your window. "
-                              "AMD FSR 1 can keep edges sharper than Bilinear.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear", [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALER_DESC] = "What scales the game's 3D scene up. Game's own keeps the game's upscaler. NVIDIA DLSS (RTX GPU, "
+                              "nvngx_dlss.dll next to dkb.exe), AMD FSR 3.1 and AMD FSR 4 replace it; DLSS applies at the next start. "
+                              "How the finished picture is then fitted to the window is the Window scaling filter's.",
+    [UI_MENU_UPSCALER_GAME] = "Game's own", [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALER_FSR3] = "AMD FSR 3.1", [UI_MENU_UPSCALER_FSR4] = "AMD FSR 4",
+    [UI_MENU_FILTER] = "Window scaling filter",
+    [UI_MENU_FILTER_DESC] = "How the finished picture is scaled to the window, with any Upscaling method. AMD FSR 1, the default, "
+                            "enlarges with AMD's edge-adaptive upscaler where the window is larger than the picture, as before. "
+                            "Linear is the plainest and softest; Catmull-Rom and Lanczos keep edges sharper, Lanczos the most. "
+                            "These three also sharpen with Sharpness at any window size and scale the game's own HDR picture. "
+                            "A window smaller than the picture is filtered over the pixels each window pixel covers.",
+    [UI_MENU_FILTER_LINEAR] = "Linear", [UI_MENU_FILTER_CATMULL_ROM] = "Catmull-Rom", [UI_MENU_FILTER_LANCZOS] = "Lanczos",
+    [UI_MENU_FILTER_FSR1] = "AMD FSR 1",
+    [UI_MENU_FILTER_SHARPNESS_ONLY] = "window = output: only matters for Sharpness",
     [UI_MENU_ASPECT] = "Display scaling",
     [UI_MENU_ASPECT_DESC] = "Default keeps the game's shape and adds black bars if needed.\n"
                             "Stretch to fill uses the whole window or screen. The image stretches only if the shapes differ.",
     [UI_MENU_ASPECT_FIT] = "Default", [UI_MENU_ASPECT_STRETCH] = "Stretch to fill",
     [UI_MENU_FOV] = "Field of view",
     [UI_MENU_FOV_DESC] = "Adjusts the camera's view as a percentage of the original angle. 100% uses the game's default view.",
-    [UI_MENU_SHARPNESS] = "FSR sharpness",
-    [UI_MENU_SHARPNESS_DESC] = "Sharpening after FSR scaling; 0 turns it off.",
+    [UI_MENU_SHARPNESS] = "Sharpness",
+    [UI_MENU_SHARPNESS_DESC] = "Sharpens the finished picture as it is scaled to the window: with AMD FSR 1 where it enlarges, and "
+                               "with Linear, Catmull-Rom or Lanczos at any window size, the output's size included. 0 turns it off. "
+                               "Too much shows halos around edges.",
+    [UI_MENU_SHARPNESS_NO_EFFECT] = "no effect with this scaling filter here: choose another",
     [UI_MENU_NO_UPSCALING] = "Requires a smaller game image",
-    [UI_MENU_SHARPNESS_NEEDS_FSR] = "Requires AMD FSR 1",
     [UI_MENU_SMAA] = "Anti-aliasing (SMAA)",
     [UI_MENU_SMAA_DESC] = "Smooths jagged edges in the game image and HUD. Higher settings use more GPU time.",
     [UI_MENU_SMAA_LOW] = "Low", [UI_MENU_SMAA_MEDIUM] = "Medium", [UI_MENU_SMAA_HIGH] = "High",
-    [UI_MENU_FRAME_GEN] = "Frame generation",
-    [UI_MENU_FRAME_GEN_DESC] = "Makes a frame between each two of the game's from their motion, so 60 fps are shown as 120. "
-                               "Smoother, not faster, with a little more delay. Needs Mailbox or Immediate and a display "
-                               "of at least twice the frame rate; otherwise no frames are made. Experimental.",
-    [UI_MENU_FRAME_GEN_2X] = "2x",
+    [UI_MENU_CRT] = "CRT filter",
+    [UI_MENU_CRT_DESC] = "Gives the finished picture, the game's HUD included, the look of a CRT screen. This menu and the overlay stay clean. "
+                         "Changes at once.\n\n"
+                         "Off: no extra passes and no extra memory. Lottes aperture grille: Timothy Lottes' crt-lottes, a flat aperture grille "
+                         "(a PVM-like look, not a calibrated model). Lottes consumer TV: the same shader, curved, with a shadow mask and beam "
+                         "bloom. Hyllian Fast: Hyllian's crt-hyllian-fast, scanlines and a magenta and green mask. zfast CRT: Greg Hogan's "
+                         "zfast, softer scanlines and a monochrome aperture mask.\n\n"
+                         "These are SDR filters: with the game's own HDR they are bypassed, and the choice is kept.",
+    [UI_MENU_CRT_LOTTES_GRILLE] = "Lottes aperture grille", [UI_MENU_CRT_LOTTES_TV] = "Lottes consumer TV",
+    [UI_MENU_CRT_HYLLIAN] = "Hyllian Fast", [UI_MENU_CRT_ZFAST] = "zfast CRT",
+    [UI_MENU_CRT_NATIVE_HDR] = "bypassed with the game's own HDR",
+    [UI_MENU_CRT_LINES] = "CRT lines",
+    [UI_MENU_CRT_LINES_DESC] = "The lines of the virtual CRT screen the picture is drawn on, not the render resolution. At most half "
+                               "the window's height; the width follows the picture's shape. A window height that is not a whole "
+                               "multiple of the lines can show moire.",
+    [UI_MENU_CRT_LINES_240] = "240", [UI_MENU_CRT_LINES_480] = "480", [UI_MENU_CRT_LINES_720] = "720",
     [UI_MENU_COLOR] = "Color",
     [UI_MENU_COLOR_PRESET] = "Color profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Game default uses the original colors.\nVivid (OLED) boosts contrast and color.\n"
@@ -152,6 +232,9 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_DKB_REALTIME] = "Allow higher frame rates",
     [UI_MENU_DKB_REALTIME_DESC] = "Unlocks the Frame rate limit setting, including rates above 60 FPS. "
                                 "Game timing adapts as FPS changes. This mode is experimental.",
+    [UI_MENU_ANTILAG] = "AMD Anti-Lag 2 (experimental)",
+    [UI_MENU_ANTILAG_DESC] = "AMD GPUs: each frame starts as late as it can, for less input delay. Shown only where the "
+                             "driver supports it.",
     [UI_MENU_CLOTH_REALTIME] = "Cloth on the clock",
     [UI_MENU_CLOTH_REALTIME_DESC] = "Steps cloth and hair by real time as well.",
     [UI_MENU_HIGHFPS_FIX] = "High frame rate fixes",
@@ -178,6 +261,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_RUMBLE_CURVE_DESC] = "Lower values make subtle vibration easier to feel.",
     [UI_MENU_RUMBLE_TRIGGERS] = "Trigger vibration (Xbox)",
     [UI_MENU_RUMBLE_TRIGGERS_DESC] = "Enables vibration in the triggers on supported Xbox controllers.",
+    [UI_MENU_SWITCH2] = "Switch 2 controllers (Bluetooth)",
+    [UI_MENU_SWITCH2_DESC] = "Joy-Con 2 and Pro Controller 2 over Bluetooth, with HD rumble. To pair one, hold its Sync button with the game open; after that any button reconnects it. Over USB they work without this setting. Applies at the next start.",
     [UI_MENU_PAD_LAYOUT] = "Button layout",
     [UI_MENU_PAD_LAYOUT_DESC] = "Automatic picks Nintendo for Nintendo-style controllers and Xbox otherwise.\nNintendo uses the right button for A.\n"
                                 "Xbox uses the bottom button for A.\nXbox prompts uses Nintendo positions with Xbox labels.\n\n"
@@ -257,7 +342,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_PAD_DPAD_LEFT] = "D-pad left", [UI_PAD_DPAD_UP] = "D-pad up", [UI_PAD_DPAD_RIGHT] = "D-pad right",
     [UI_PAD_DPAD_DOWN] = "D-pad down", [UI_PAD_ZL] = "Left trigger", [UI_PAD_ZR] = "Right trigger",
     [UI_PAD_LPADDLE1] = "Left back button", [UI_PAD_RPADDLE1] = "Right back button",
-    [UI_PAD_LPADDLE2] = "Left back button 2", [UI_PAD_RPADDLE2] = "Right back button 2",
+    [UI_PAD_LPADDLE2] = "Left back button 2", [UI_PAD_RPADDLE2] = "Right back button 2", [UI_PAD_TOUCHPAD] = "Touchpad",
     [UI_PAD_CROSS] = "Cross", [UI_PAD_CIRCLE] = "Circle", [UI_PAD_SQUARE] = "Square", [UI_PAD_TRIANGLE] = "Triangle",
 
     [UI_MENU_MENU_LANG] = "Settings language", [UI_MENU_MENU_LANG_DESC] = "Sets the language of the settings menu and performance overlay. System default uses "
@@ -276,7 +361,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_REPLAY_ASYNC] = "GPU frame prep on its own thread",
     [UI_MENU_REPLAY_ASYNC_DESC] = "Prepares frames for the GPU on a separate thread instead of the game thread. Adds up to one frame of latency.",
     [UI_MENU_REPLAY_THREADS] = "Threads recording big render passes",
-    [UI_MENU_REPLAY_THREADS_DESC] = "Records the draws of big render passes on this many threads at once. Automatic uses 4 threads on 8 or more logical processors (not on AMD); Off records them on one thread. Faster in busy areas on CPUs with many cores.",
+    [UI_MENU_REPLAY_THREADS_DESC] = "Records the draws of big render passes on this many threads at once. Automatic uses 6 threads on 12 or more logical processors and 4 on 8 to 11 (on AMD only the RX 9070 and 9070 XT on the proprietary driver, the setup it was measured on); Off records them on one thread. Faster in busy areas on CPUs with many cores.",
     [UI_MENU_TIMER_1MS] = "1 ms Windows timer",
     [UI_MENU_TIMER_1MS_DESC] = "Raises the system timer resolution to 1 ms for steadier frame pacing.",
     [UI_MENU_PIPE_WAIT] = "Waiting draw handling",
@@ -355,6 +440,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OV_REPLAY] = "GPU frame prep", [UI_MENU_OV_GPU_TIME] = "GPU busy per frame",
     [UI_MENU_OV_PIPE_WAIT] = "Pipeline waits",
     [UI_MENU_OV_SHADER_WAIT] = "Shader waits", [UI_MENU_OV_TEX_UPLOADS] = "Texture uploads",
+    [UI_MENU_OV_PART_GAME] = "Game", [UI_MENU_OV_PART_TEX] = "Texture waits", [UI_MENU_OV_PART_FENCE] = "GPU waits",
+    [UI_MENU_OV_PART_PRESENT] = "Present waits", [UI_MENU_OV_PART_PACE] = "Frame limit",
     [UI_MENU_OV_FMT_PCT] = "%.0f%%", [UI_MENU_OV_FMT_TEMP] = "%.0f °C", [UI_MENU_OV_FMT_POWER] = "%.0f W",
     [UI_MENU_OV_FMT_MHZ] = "%.0f MHz", [UI_MENU_OV_FMT_GB] = "%.1f GB", [UI_MENU_OV_FMT_GB_OF] = "/ %.1f GB",
     [UI_MENU_OV_GAME_GB] = "game %.1f GB", [UI_MENU_OV_FMT_MS] = "%.2f ms", [UI_MENU_OV_PER_FRAME] = "%.1f per frame",
@@ -363,12 +450,26 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
     [UI_MENU_OV_FMT_UPSCALE] = "%ux%u -> %ux%u",
     [UI_MENU_OV_NO_UPSCALER] = "no upscaler",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, sharpness %d%%", [UI_MENU_OV_SCALE_NONE] = "none (1:1)",
+    [UI_MENU_OV_FMT_SHARP] = "%s, sharpness %d%%", [UI_MENU_OV_SCALE_NONE] = "none (1:1)",
     [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
 };
 
 static const char *const text_ru[UI_TEXT_COUNT] = {
     SWKBD("Ввод текста", "Введите имя", "Лошадь", "ОК", "Отмена", "Контроллер: A — ОК, B — отмена"),
+    [UI_MENU_SPLASH_STARTING] = "ЗАПУСК", [UI_MENU_SPLASH_SHADERS] = "ПОДГОТОВКА ШЕЙДЕРОВ",
+    [UI_MENU_SPLASH_PIPELINES] = "СБОРКА КОНВЕЙЕРОВ", [UI_MENU_SPLASH_GAME] = "ЗАПУСК ИГРЫ",
+    [UI_MENU_SPLASH_COUNT_SHADERS] = "%s из %s шейдеров", [UI_MENU_SPLASH_COUNT_PIPELINES] = "%s из %s конвейеров",
+    [UI_MENU_SPLASH_LEFT_SECONDS] = "этот шаг: ещё около %d с",
+    [UI_MENU_SPLASH_LEFT_MINUTES] = "этот шаг: ещё около %d мин",
+    [UI_MENU_SPLASH_VERSION] = "v%s  ·  игра %s",
+    [UI_MENU_SPLASH_TIP_FULLSCREEN] = "F11 переключает окно и полный экран.",
+    [UI_MENU_SPLASH_TIP_SETTINGS] = "В игре настройки открывает F1 или Esc, а также кнопка Home на геймпаде.",
+    [UI_MENU_SPLASH_TIP_OVERLAY] = "В игре F10 показывает панель производительности.",
+    [UI_MENU_SPLASH_TIP_GRAPHICS] = "Апскейлер и HDR — на вкладке «Графика» в настройках.",
+    [UI_MENU_SPLASH_TIP_FRAME_RATE] = "Ограничение частоты кадров и генерация кадров — на вкладке «Экран» в настройках.",
+    [UI_MENU_SPLASH_TIP_REMAP] = "Кнопки и клавиши можно переназначить на вкладке «Управление» в настройках.",
+    [UI_MENU_SPLASH_TIP_KEPT] = "Подготовленное сейчас сохраняется, и следующие запуски быстрее.",
+    [UI_MENU_SPLASH_TIP_TABS] = "В настройках вкладки переключают Q и E.",
 
     [UI_MENU_TITLE] = "Настройки",
     [UI_MENU_TAB_DISPLAY] = "Экран", [UI_MENU_TAB_GRAPHICS] = "Графика",
@@ -395,14 +496,34 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_PRESENT_MAILBOX] = "Mailbox", [UI_MENU_PRESENT_VSYNC] = "Вертикальная синхронизация",
     [UI_MENU_PRESENT_IMMEDIATE] = "Без ожидания",
     [UI_MENU_PRESENT_IN_USE] = "сейчас: %s",
+    [UI_MENU_FRAME_GEN] = "Генерация кадров (экспериментально)",
+    [UI_MENU_FRAME_GEN_DESC] = "Показывает сгенерированные кадры между кадрами игры: движение плавнее ценой небольшой задержки ввода. "
+                               "При быстром движении и смене планов возможны артефакты.\n\n"
+                               "Выкл.: только собственные кадры игры, без дополнительной задержки. Автоматически: кадр на каждое обновление экрана, "
+                               "с задержкой в один кадр игры. От 2x до 8x: столько кадров на каждый кадр игры, но не больше, чем показывает экран.\n\n"
+                               "В строке «Синхронизация кадров» нужен режим Mailbox или «Без ожидания». "
+                               "Сгенерированные кадры пропускаются после рывка и когда следующий кадр игры уже ждёт.",
+    [UI_MENU_FRAME_GEN_2X] = "2x", [UI_MENU_FRAME_GEN_3X] = "3x", [UI_MENU_FRAME_GEN_4X] = "4x", [UI_MENU_FRAME_GEN_5X] = "5x",
+    [UI_MENU_FRAME_GEN_6X] = "6x", [UI_MENU_FRAME_GEN_7X] = "7x", [UI_MENU_FRAME_GEN_8X] = "8x",
+    [UI_MENU_FRAME_GEN_VSYNC] = "не работает с вертикальной синхронизацией",
+    [UI_MENU_FRAME_GEN_BY] = "Кадры создаёт",
+    [UI_MENU_FRAME_GEN_BY_DESC] = "Встроенный способ делает кадры только по картинке. AMD FSR 3.1 использует ещё глубину и движение сцены "
+                                  "и оптический поток, на что уходит больше времени видеокарты. Он делает только кадры режима 2x.\n\n"
+                                  "Для AMD нужен временной апскейлер (DLSS, FSR 3.1 или FSR 4), при котором 3D рисуется в разрешении ниже выходного; "
+                                  "кадр, который он не может сделать, получается встроенным способом.",
+    [UI_MENU_FRAME_GEN_BUILTIN] = "Встроенный", [UI_MENU_FRAME_GEN_FSR3] = "AMD FSR 3.1",
+    [UI_MENU_FRAME_GEN_BY_NEEDS] = "нужен DLSS, FSR 3.1 или FSR 4 и 3D ниже выходного разрешения",
     [UI_MENU_GPU] = "Видеокарта", [UI_MENU_GPU_DESC] = "Устройство Vulkan, которое рисует игру.",
     [UI_MENU_GPU_AUTO] = "Автоматически",
     [UI_MENU_PERF_OVERLAY] = "Индикатор производительности",
-    [UI_MENU_PERF_OVERLAY_DESC] = "Частота кадров в правом верхнем углу. «Полный» добавляет время кадров с графиком, "
+    [UI_MENU_PERF_OVERLAY_DESC] = "Частота кадров в правом верхнем углу. «Счётчик» показывает её крупным числом без фона. «Полный» добавляет время кадров с графиком, "
                                   "загрузку ЦП, GPU и памяти, температуры и ожидания потока отрисовки. F10 переключает "
-                                  "режимы.",
-    [UI_MENU_PERF_OFF] = "Выкл.", [UI_MENU_PERF_FPS] = "FPS", [UI_MENU_PERF_FULL] = "Полный",
+                                  "режимы. «Разбивка» делит каждый кадр на графике на части: работа самой игры, подготовка "
+                                  "кадра для GPU, ожидания по причинам и ограничение кадров.",
+    [UI_MENU_PERF_OFF] = "Выкл.", [UI_MENU_PERF_FPS] = "FPS", [UI_MENU_PERF_FULL] = "Полный", [UI_MENU_PERF_BREAKDOWN] = "Разбивка",
+    [UI_MENU_PERF_COUNTER] = "Счётчик",
     [UI_PERF_LINE_FPS] = "%.0f к/с",
+    [UI_PERF_FPS_LABEL] = "к/с",
     [UI_MENU_RESOLUTION_GROUP] = "Разрешение",
     [UI_MENU_DISPLAY_OUTPUT] = "Вывод изображения",
     [UI_MENU_RENDER_OPTIONS] = "Настройки рендеринга",
@@ -432,10 +553,22 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                "по каждой стороне, и затем растягивает её. Полное: 3D-сцена рисуется в полном разрешении "
                                "рендеринга, картинка чётче, но нагрузка на GPU выше; апскейлер и DLSS не работают. Действует после перезапуска.",
     [UI_MENU_SCENE_RES_AUTO] = "Авто (игра)", [UI_MENU_SCENE_RES_FULL] = "Полное",
-    [UI_MENU_UPSCALER] = "Масштабирование под окно",
-    [UI_MENU_UPSCALER_DESC] = "Этот параметр действует, когда изображение игры меньше области вывода на экране или в окне. "
-                              "AMD FSR 1 может сохранять края более чёткими, чем билинейное масштабирование.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное", [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALER] = "Метод апскейла",
+    [UI_MENU_UPSCALER_DESC] = "Чем увеличивается 3D-сцена игры. «Апскейлер игры» оставляет встроенный апскейлер игры. NVIDIA DLSS "
+                              "(видеокарта RTX, nvngx_dlss.dll рядом с dkb.exe), AMD FSR 3.1 и AMD FSR 4 заменяют его; DLSS "
+                              "применяется при следующем запуске. Как готовая картинка потом подгоняется под окно, определяет "
+                              "фильтр масштабирования под окно.",
+    [UI_MENU_UPSCALER_GAME] = "Апскейлер игры", [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALER_FSR3] = "AMD FSR 3.1", [UI_MENU_UPSCALER_FSR4] = "AMD FSR 4",
+    [UI_MENU_FILTER] = "Фильтр масштабирования под окно",
+    [UI_MENU_FILTER_DESC] = "Как готовая картинка масштабируется под окно, с любым методом апскейла. AMD FSR 1, по умолчанию, "
+                            "увеличивает картинку адаптивным к краям апскейлером AMD, когда окно больше картинки, как и раньше. "
+                            "Линейный фильтр самый простой и мягкий; Catmull-Rom и Lanczos сохраняют края чётче, Lanczos сильнее всего. "
+                            "Эти три фильтра также повышают резкость при любом размере окна и масштабируют собственную HDR-картинку игры. "
+                            "Окно меньше картинки фильтруется по пикселям, которые покрывает каждый пиксель окна.",
+    [UI_MENU_FILTER_LINEAR] = "Линейный", [UI_MENU_FILTER_CATMULL_ROM] = "Catmull-Rom", [UI_MENU_FILTER_LANCZOS] = "Lanczos",
+    [UI_MENU_FILTER_FSR1] = "AMD FSR 1",
+    [UI_MENU_FILTER_SHARPNESS_ONLY] = "окно = вывод: влияет только на резкость",
     [UI_MENU_ASPECT] = "Масштабирование вывода",
     [UI_MENU_ASPECT_DESC] = "По умолчанию пропорции игры сохраняются, при необходимости появляются чёрные полосы.\n"
                             "В режиме «Растянуть» изображение заполняет всё окно или экран. Оно растягивается, только "
@@ -443,19 +576,31 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_ASPECT_FIT] = "По умолчанию", [UI_MENU_ASPECT_STRETCH] = "Растянуть",
     [UI_MENU_FOV] = "Поле зрения",
     [UI_MENU_FOV_DESC] = "Меняет угол обзора камеры в процентах от исходного. При 100 % используется исходный угол.",
-    [UI_MENU_SHARPNESS] = "Резкость FSR",
-    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости после масштабирования FSR; 0 выключает его.",
+    [UI_MENU_SHARPNESS] = "Резкость",
+    [UI_MENU_SHARPNESS_DESC] = "Повышает резкость готовой картинки при масштабировании под окно: с AMD FSR 1, когда он увеличивает "
+                               "картинку, а с линейным фильтром, Catmull-Rom или Lanczos при любом размере окна, в том числе равном "
+                               "разрешению вывода. 0 выключает его. При слишком большом значении вокруг краёв появляются ореолы.",
+    [UI_MENU_SHARPNESS_NO_EFFECT] = "здесь не действует с этим фильтром масштабирования: выберите другой",
     [UI_MENU_NO_UPSCALING] = "Нужно меньшее разрешение игры",
-    [UI_MENU_SHARPNESS_NEEDS_FSR] = "Требуется AMD FSR 1",
     [UI_MENU_SMAA] = "Сглаживание (SMAA)",
     [UI_MENU_SMAA_DESC] = "Сглаживает лесенки на готовой картинке после масштабирования под окно и до отрисовки этого "
                           "меню. Интерфейс игры тоже сглаживается. Чем выше качество, тем больше нагрузка на GPU.",
     [UI_MENU_SMAA_LOW] = "Низкое", [UI_MENU_SMAA_MEDIUM] = "Среднее", [UI_MENU_SMAA_HIGH] = "Высокое",
-    [UI_MENU_FRAME_GEN] = "Генерация кадров",
-    [UI_MENU_FRAME_GEN_DESC] = "Создаёт кадр между каждыми двумя кадрами игры по их движению: 60 кадров/с показываются как 120. "
-                               "Плавнее, но не быстрее, с немного большей задержкой. Нужны Mailbox или «Немедленно» и экран "
-                               "с частотой не ниже удвоенной частоты кадров, иначе кадры не создаются. Экспериментально.",
-    [UI_MENU_FRAME_GEN_2X] = "2x",
+    [UI_MENU_CRT] = "Фильтр ЭЛТ",
+    [UI_MENU_CRT_DESC] = "Придаёт готовой картинке вместе с интерфейсом игры вид экрана с кинескопом. Это меню и оверлей остаются "
+                         "чистыми. Меняется сразу.\n\n"
+                         "Выкл.: без дополнительных проходов и памяти. Lottes aperture grille: crt-lottes Тимоти Лоттса, плоская "
+                         "апертурная решётка. Lottes consumer TV: тот же шейдер, выпуклый, с теневой маской. Hyllian Fast: "
+                         "crt-hyllian-fast от Hyllian, строки развёртки и пурпурно-зелёная маска. zfast CRT: zfast Грега Хогана, мягкие "
+                         "строки и монохромная маска.\n\n"
+                         "Это фильтры для SDR: с собственным HDR игры они не применяются, выбор сохраняется.",
+    [UI_MENU_CRT_LOTTES_GRILLE] = "Lottes aperture grille", [UI_MENU_CRT_LOTTES_TV] = "Lottes consumer TV",
+    [UI_MENU_CRT_HYLLIAN] = "Hyllian Fast", [UI_MENU_CRT_ZFAST] = "zfast CRT",
+    [UI_MENU_CRT_NATIVE_HDR] = "не применяется с собственным HDR игры",
+    [UI_MENU_CRT_LINES] = "Строки ЭЛТ",
+    [UI_MENU_CRT_LINES_DESC] = "Число строк виртуального экрана с кинескопом, а не разрешение рендера. Не больше половины высоты "
+                               "окна; ширина следует форме картинки. Если высота окна не кратна числу строк, возможен муар.",
+    [UI_MENU_CRT_LINES_240] = "240", [UI_MENU_CRT_LINES_480] = "480", [UI_MENU_CRT_LINES_720] = "720",
     [UI_MENU_COLOR] = "Цвет",
     [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
     [UI_MENU_COLOR_PRESET_DESC] = "Задаёт четыре значения ниже. «Яркий»: больше контраста и насыщенности, тени немного "
@@ -502,6 +647,9 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_DKB_REALTIME] = "Разрешить высокий FPS",
     [UI_MENU_DKB_REALTIME_DESC] = "Позволяет выбрать лимит кадров, в том числе выше 60 FPS. "
                                 "Игровое время подстраивается под частоту кадров. Режим экспериментальный.",
+    [UI_MENU_ANTILAG] = "AMD Anti-Lag 2 (экспериментально)",
+    [UI_MENU_ANTILAG_DESC] = "Видеокарты AMD: каждый кадр начинается как можно позже, задержка ввода меньше. "
+                             "Показывается только там, где это поддерживает драйвер.",
     [UI_MENU_CLOTH_REALTIME] = "Ткань по часам",
     [UI_MENU_CLOTH_REALTIME_DESC] = "Ткань и волосы тоже идут по реальному времени.",
     [UI_MENU_HIGHFPS_FIX] = "Исправления для высокого FPS",
@@ -531,6 +679,8 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_RUMBLE_CURVE_DESC] = "Чем ниже значение, тем сильнее слабая вибрация.",
     [UI_MENU_RUMBLE_TRIGGERS] = "Вибрация триггеров (Xbox)",
     [UI_MENU_RUMBLE_TRIGGERS_DESC] = "Вибрация и в триггерах контроллера Xbox.",
+    [UI_MENU_SWITCH2] = "Контроллеры Switch 2 (Bluetooth)",
+    [UI_MENU_SWITCH2_DESC] = "Joy-Con 2 и Pro Controller 2 по Bluetooth, с HD-вибрацией. Чтобы подключить, удерживайте кнопку Sync при запущенной игре; потом любая кнопка подключает его снова. По USB они работают и без этой настройки. Применяется после перезапуска.",
     [UI_MENU_PAD_LAYOUT] = "Раскладка кнопок",
     [UI_MENU_PAD_LAYOUT_DESC] = "Какая кнопка работает как A. Nintendo: правая, как на Switch. Xbox: нижняя, как "
                                 "подписано на контроллере Xbox (крест на контроллере PlayStation). Автоматически: "
@@ -618,7 +768,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_PAD_DPAD_RIGHT] = "Крестовина вправо", [UI_PAD_DPAD_DOWN] = "Крестовина вниз", [UI_PAD_ZL] = "Левый курок",
     [UI_PAD_ZR] = "Правый курок",
     [UI_PAD_LPADDLE1] = "Левая задняя кнопка", [UI_PAD_RPADDLE1] = "Правая задняя кнопка",
-    [UI_PAD_LPADDLE2] = "Левая задняя кнопка 2", [UI_PAD_RPADDLE2] = "Правая задняя кнопка 2",
+    [UI_PAD_LPADDLE2] = "Левая задняя кнопка 2", [UI_PAD_RPADDLE2] = "Правая задняя кнопка 2", [UI_PAD_TOUCHPAD] = "Сенсорная панель",
     [UI_PAD_CROSS] = "Крест", [UI_PAD_CIRCLE] = "Круг", [UI_PAD_SQUARE] = "Квадрат", [UI_PAD_TRIANGLE] = "Треугольник",
 
     [UI_MENU_MENU_LANG] = "Язык меню", [UI_MENU_MENU_LANG_DESC] = "Язык этого меню и индикатора.",
@@ -636,7 +786,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_REPLAY_ASYNC] = "Подготовка кадра для GPU в отдельном потоке",
     [UI_MENU_REPLAY_ASYNC_DESC] = "Кадр для GPU готовится в отдельном потоке, а не в потоке игры. Добавляет до одного кадра задержки.",
     [UI_MENU_REPLAY_THREADS] = "Потоки записи больших проходов",
-    [UI_MENU_REPLAY_THREADS_DESC] = "Отрисовки больших проходов записываются сразу в столько потоков. «Автоматически» — 4 потока при 8 и более логических процессорах (кроме AMD); «Выкл.» — в одном потоке. Быстрее в насыщенных местах на процессорах с большим числом ядер.",
+    [UI_MENU_REPLAY_THREADS_DESC] = "Отрисовки больших проходов записываются сразу в столько потоков. «Автоматически» — 6 потоков при 12 и более логических процессорах и 4 при 8–11 (из AMD только RX 9070 и 9070 XT на проприетарном драйвере, где это измерено); «Выкл.» — в одном потоке. Быстрее в насыщенных местах на процессорах с большим числом ядер.",
     [UI_MENU_TIMER_1MS] = "Таймер Windows 1 мс",
     [UI_MENU_TIMER_1MS_DESC] = "Повышает точность системного таймера до 1 мс для ровного темпа кадров.",
     [UI_MENU_PIPE_WAIT] = "Обработка ожидающих отрисовок",
@@ -717,6 +867,8 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OV_REPLAY] = "Подготовка кадра для GPU", [UI_MENU_OV_GPU_TIME] = "Занятость GPU за кадр",
     [UI_MENU_OV_PIPE_WAIT] = "Ожидания конвейеров",
     [UI_MENU_OV_SHADER_WAIT] = "Ожидания шейдеров", [UI_MENU_OV_TEX_UPLOADS] = "Загрузки текстур",
+    [UI_MENU_OV_PART_GAME] = "Игра", [UI_MENU_OV_PART_TEX] = "Ожидания текстур", [UI_MENU_OV_PART_FENCE] = "Ожидания GPU",
+    [UI_MENU_OV_PART_PRESENT] = "Ожидания вывода", [UI_MENU_OV_PART_PACE] = "Ограничение кадров",
     [UI_MENU_OV_FMT_PCT] = "%.0f%%", [UI_MENU_OV_FMT_TEMP] = "%.0f °C", [UI_MENU_OV_FMT_POWER] = "%.0f Вт",
     [UI_MENU_OV_FMT_MHZ] = "%.0f МГц", [UI_MENU_OV_FMT_GB] = "%.1f ГБ", [UI_MENU_OV_FMT_GB_OF] = "/ %.1f ГБ",
     [UI_MENU_OV_GAME_GB] = "игра %.1f ГБ", [UI_MENU_OV_FMT_MS] = "%.2f мс", [UI_MENU_OV_PER_FRAME] = "%.1f за кадр",
@@ -725,7 +877,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
     [UI_MENU_OV_FMT_UPSCALE] = "%ux%u -> %ux%u",
     [UI_MENU_OV_NO_UPSCALER] = "без апскейлера",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, резкость %d%%", [UI_MENU_OV_SCALE_NONE] = "нет (1:1)",
+    [UI_MENU_OV_FMT_SHARP] = "%s, резкость %d%%", [UI_MENU_OV_SCALE_NONE] = "нет (1:1)",
     [UI_MENU_OV_SCALE_BILINEAR] = "билинейное",
 };
 
@@ -791,26 +943,32 @@ static const char *const text_de[UI_TEXT_COUNT] = {
                                "Render-Auflösung: ein schärferes Bild bei höheren GPU-Kosten, ohne Upscaler und DLSS. Gilt ab dem nächsten Start.",
     [UI_MENU_SCENE_RES_AUTO] = "Auto (Spiel)", [UI_MENU_SCENE_RES_FULL] = "Voll",
     [UI_MENU_UPSCALER] = "Skalierungsmethode",
-    [UI_MENU_UPSCALER_DESC] = "Greift, wenn das Spielbild kleiner ist als die Fläche, die es auf deinem Bildschirm oder im Fenster füllt. "
-                              "AMD FSR 1 kann Kanten schärfer halten als Bilinear.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear", [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALER_DESC] = "Was die 3D-Szene des Spiels hochskaliert. Eigener des Spiels behält den Upscaler des Spiels. NVIDIA DLSS "
+                              "(RTX-GPU, nvngx_dlss.dll neben dkb.exe), AMD FSR 3.1 und AMD FSR 4 ersetzen ihn; DLSS gilt ab dem "
+                              "nächsten Start. Wie das fertige Bild dann ins Fenster kommt, regelt der Skalierungsfilter fürs Fenster.",
+    [UI_MENU_UPSCALER_DLSS] = "NVIDIA DLSS",
     [UI_MENU_ASPECT] = "Bildskalierung",
     [UI_MENU_ASPECT_DESC] = "Standard behält das Format des Spiels und fügt bei Bedarf schwarze Balken hinzu.\n"
                             "Strecken nutzt das ganze Fenster oder den ganzen Bildschirm. Das Bild wird nur gestreckt, wenn die Formate abweichen.",
     [UI_MENU_ASPECT_FIT] = "Standard", [UI_MENU_ASPECT_STRETCH] = "Strecken",
     [UI_MENU_FOV] = "Sichtfeld",
     [UI_MENU_FOV_DESC] = "Passt die Kamerasicht in Prozent des ursprünglichen Winkels an. 100 % ist die Standardsicht des Spiels.",
-    [UI_MENU_SHARPNESS] = "FSR-Schärfe",
-    [UI_MENU_SHARPNESS_DESC] = "Nachschärfen nach der FSR-Skalierung; 0 schaltet es aus.",
+    [UI_MENU_SHARPNESS] = "Schärfe",
+    [UI_MENU_SHARPNESS_DESC] = "Schärft das fertige Bild beim Skalieren aufs Fenster nach: mit AMD FSR 1, wo es vergrößert, und mit "
+                               "Linear, Catmull-Rom oder Lanczos bei jeder Fenstergröße, auch in Ausgabegröße. 0 schaltet es aus. "
+                               "Zu viel zeigt Säume an Kanten.",
     [UI_MENU_NO_UPSCALING] = "Braucht ein kleineres Spielbild",
-    [UI_MENU_SHARPNESS_NEEDS_FSR] = "Braucht AMD FSR 1",
     [UI_MENU_SMAA] = "Kantenglättung (SMAA)",
     [UI_MENU_SMAA_DESC] = "Glättet gezackte Kanten im Spielbild und HUD. Höhere Stufen brauchen mehr GPU-Zeit.",
     [UI_MENU_SMAA_LOW] = "Niedrig", [UI_MENU_SMAA_MEDIUM] = "Mittel", [UI_MENU_SMAA_HIGH] = "Hoch",
-    [UI_MENU_FRAME_GEN] = "Frame Generation",
-    [UI_MENU_FRAME_GEN_DESC] = "Berechnet zwischen je zwei Bildern des Spiels eins aus der Bewegung, so werden 60 FPS als 120 "
-                               "angezeigt. Flüssiger, nicht schneller, mit etwas mehr Verzögerung. Braucht Mailbox oder Sofort und "
-                               "einen Bildschirm mit mindestens der doppelten Bildrate, sonst entstehen keine Zwischenbilder. Experimentell.",
+    [UI_MENU_FRAME_GEN] = "Frame Generation (experimentell)",
+    [UI_MENU_FRAME_GEN_DESC] = "Zeigt zwischen je zwei Bildern des Spiels berechnete Bilder für flüssigere Bewegung, auf Kosten etwas "
+                               "Eingabeverzögerung. Schnelle Bewegungen und Schnitte können Bildfehler zeigen.\n\n"
+                               "Aus: nur die eigenen Bilder des Spiels, keine zusätzliche Verzögerung. Automatisch: ein Bild für jede "
+                               "Bildwiederholung des Bildschirms, ein Spielbild später gezeigt. 2x bis 8x: so viele Bilder je Spielbild, "
+                               "und nicht mehr, als der Bildschirm zeigen kann.\n\n"
+                               "Braucht Bildsynchronisation Mailbox oder Sofort. Nach einem Hänger und wenn das nächste Spielbild "
+                               "schon wartet, entfallen die berechneten Bilder.",
     [UI_MENU_FRAME_GEN_2X] = "2x",
     [UI_MENU_COLOR] = "Farbe",
     [UI_MENU_COLOR_PRESET] = "Farbprofil",
@@ -1066,8 +1224,94 @@ static const char *const text_de[UI_TEXT_COUNT] = {
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
     [UI_MENU_OV_FMT_UPSCALE] = "%ux%u -> %ux%u",
     [UI_MENU_OV_NO_UPSCALER] = "kein Upscaler",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, Schärfe %d%%", [UI_MENU_OV_SCALE_NONE] = "keine (1:1)",
+    [UI_MENU_OV_SCALE_NONE] = "keine (1:1)",
     [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
+    [UI_MENU_SPLASH_STARTING] = "WIRD GESTARTET", [UI_MENU_SPLASH_SHADERS] = "SHADER WERDEN VORBEREITET",
+    [UI_MENU_SPLASH_PIPELINES] = "PIPELINES WERDEN GEBAUT", [UI_MENU_SPLASH_GAME] = "SPIEL STARTET",
+    [UI_MENU_SPLASH_COUNT_SHADERS] = "%s von %s Shadern", [UI_MENU_SPLASH_COUNT_PIPELINES] = "%s von %s Pipelines",
+    [UI_MENU_SPLASH_LEFT_SECONDS] = "noch etwa %d s für diesen Schritt",
+    [UI_MENU_SPLASH_LEFT_MINUTES] = "noch etwa %d min für diesen Schritt",
+    [UI_MENU_SPLASH_VERSION] = "v%s  \xc2\xb7  Spiel %s",
+    [UI_MENU_SPLASH_TIP_FULLSCREEN] = "F11 wechselt zwischen Fenster und Vollbild.",
+    [UI_MENU_SPLASH_TIP_SETTINGS] = "Im Spiel öffnet F1 oder Esc die Einstellungen, ebenso die Home-Taste eines Controllers.",
+    [UI_MENU_SPLASH_TIP_OVERLAY] = "Im Spiel zeigt F10 die Leistungsanzeige.",
+    [UI_MENU_SPLASH_TIP_GRAPHICS] = "Skalierungsmethode und HDR findest du im Reiter Grafik der Einstellungen.",
+    [UI_MENU_SPLASH_TIP_FRAME_RATE] = "Bildratenbegrenzung und Frame Generation findest du im Reiter Anzeige der Einstellungen.",
+    [UI_MENU_SPLASH_TIP_REMAP] = "Tasten lassen sich im Reiter Steuerung der Einstellungen neu belegen.",
+    [UI_MENU_SPLASH_TIP_KEPT] = "Was jetzt vorbereitet wird, bleibt erhalten; die nächsten Starts gehen schneller.",
+    [UI_MENU_SPLASH_TIP_TABS] = "In den Einstellungen wechseln Q und E zwischen den Reitern.",
+    [UI_MENU_PAD_DEVICE] = "Controller",
+    [UI_MENU_PAD_DEVICE_DESC] = "Wähle, welcher Controller benutzt wird. Änderungen gelten sofort.\n\n"
+                                "Neu verbundene Controller übernehmen automatisch. Trennt sich der aktive Controller, übernimmt ein anderer verfügbarer.\n\n"
+                                "Eine eigene Wahl gilt sofort und wird für den Start gespeichert. Automatisch startet mit dem ersten verfügbaren Controller; "
+                                "später verbundene können trotzdem übernehmen.\n\nTastatur und Maus bleiben verfügbar.",
+    [UI_MENU_PAD_FULLSCREEN_HOLD] = "Vollbild durch Halten",
+    [UI_MENU_PAD_FULLSCREEN_HOLD_DESC] = "Aus: Plus + Minus öffnet oder schließt die Einstellungen.\n\n"
+                                         "An: Plus + Minus 0,5 Sekunden halten schaltet stattdessen das Vollbild um.\n\n"
+                                         "Guide/Home und F1 auf der Tastatur bleiben in beiden Fällen verfügbar.",
+    [UI_MENU_SHORTCUT_SETTINGS_COMBO_DESC] = "Drücke die angezeigten Belegungen für Plus und Minus gleichzeitig, um die Einstellungen zu öffnen oder zu schließen.\n\n"
+                                             "Diese Kombination folgt der aktuellen Tastenbelegung.\n\nAuf der Tastatur: F1.",
+    [UI_MENU_SHORTCUTS] = "Tastenkombinationen", [UI_MENU_SHORTCUT_READONLY] = "Feste Tastenkombinationen",
+    [UI_MENU_SHORTCUT_SETTINGS] = "Einstellungen öffnen",
+    [UI_MENU_SHORTCUT_SETTINGS_DESC] = "Drücke die Guide- oder Home-Taste, um die Einstellungen zu öffnen oder zu schließen.\n\n"
+                                       "Auf der Tastatur: F1.\n\nDas Programm oder Betriebssystem muss diese Taste an das Spiel weitergeben.",
+    [UI_MENU_SHORTCUT_FULLSCREEN] = "Vollbild umschalten",
+    [UI_MENU_SHORTCUT_FULLSCREEN_DESC] = "Halte beide angezeigten Tasten 0,5 Sekunden zusammen, um das Vollbild umzuschalten.\n\n"
+                                         "Lass beide los, bevor du es wiederholst.\n\nAuf der Tastatur: F11.",
+    [UI_MENU_SHORTCUT_PERFORMANCE] = "Leistungsdaten umschalten",
+    [UI_MENU_SHORTCUT_PERFORMANCE_DESC] = "Drücke beide Stick-Klick-Belegungen zusammen, um die Leistungsdaten durchzuschalten: Aus, FPS, Voll, dann Aufschlüsselung.\n\n"
+                                          "Diese Kombination folgt der aktuellen Belegung der Stick-Klicks.\n\nAuf der Tastatur: F10.",
+    [UI_MENU_PAD_CONNECTED] = "Verbunden", [UI_MENU_PAD_WAITING] = "Verbinde einen Controller, um weiterzuspielen",
+    [UI_MENU_PAD_NONE] = "Kein Controller verbunden", [UI_MENU_PAD_SAVED] = "Gespeicherter Controller",
+    [UI_MENU_FRAME_GEN_3X] = "3x", [UI_MENU_FRAME_GEN_4X] = "4x", [UI_MENU_FRAME_GEN_5X] = "5x",
+    [UI_MENU_FRAME_GEN_6X] = "6x", [UI_MENU_FRAME_GEN_7X] = "7x", [UI_MENU_FRAME_GEN_8X] = "8x",
+    [UI_MENU_FRAME_GEN_VSYNC] = "mit VSync wirkungslos",
+    [UI_MENU_FRAME_GEN_BY] = "Frame Generation durch",
+    [UI_MENU_FRAME_GEN_BY_DESC] = "Eingebaut berechnet die Bilder nur aus dem Bild. AMD FSR 3.1 nutzt zusätzlich Tiefe und Bewegung der Szene "
+                                  "und einen optischen Fluss, was mehr GPU-Zeit kostet. Es macht nur 2x.\n\n"
+                                  "AMDs Variante braucht einen temporalen Upscaler (DLSS, FSR 3.1 oder FSR 4), bei dem die 3D-Szene kleiner als "
+                                  "die Ausgabe gezeichnet wird; ein Bild, das sie nicht machen kann, kommt vom eingebauten Verfahren.",
+    [UI_MENU_FRAME_GEN_BUILTIN] = "Eingebaut", [UI_MENU_FRAME_GEN_FSR3] = "AMD FSR 3.1",
+    [UI_MENU_FRAME_GEN_BY_NEEDS] = "braucht DLSS, FSR 3.1 oder FSR 4 mit der 3D-Szene unter der Ausgabegröße",
+    [UI_MENU_PERF_BREAKDOWN] = "Aufschlüsselung", [UI_MENU_PERF_COUNTER] = "Zähler", [UI_PERF_FPS_LABEL] = "FPS",
+    [UI_MENU_UPSCALER_GAME] = "Eigener des Spiels", [UI_MENU_UPSCALER_FSR3] = "AMD FSR 3.1",
+    [UI_MENU_UPSCALER_FSR4] = "AMD FSR 4",
+    [UI_MENU_FILTER] = "Skalierungsfilter fürs Fenster",
+    [UI_MENU_FILTER_DESC] = "Wie das fertige Bild auf das Fenster skaliert wird, mit jeder Skalierungsmethode. AMD FSR 1, der Standard, "
+                            "vergrößert mit AMDs kantenbewusstem Upscaler, wo das Fenster größer als das Bild ist, wie bisher. Linear ist "
+                            "am einfachsten und weichsten; Catmull-Rom und Lanczos halten Kanten schärfer, Lanczos am meisten. Diese drei "
+                            "schärfen mit der Schärfe auch bei jeder Fenstergröße nach und skalieren das eigene HDR-Bild des Spiels. Ein "
+                            "Fenster kleiner als das Bild wird über die Pixel gefiltert, die jedes Fensterpixel abdeckt.",
+    [UI_MENU_FILTER_LINEAR] = "Linear", [UI_MENU_FILTER_CATMULL_ROM] = "Catmull-Rom", [UI_MENU_FILTER_LANCZOS] = "Lanczos",
+    [UI_MENU_FILTER_FSR1] = "AMD FSR 1",
+    [UI_MENU_FILTER_SHARPNESS_ONLY] = "Fenster = Ausgabe: zählt nur für die Schärfe",
+    [UI_MENU_SHARPNESS_NO_EFFECT] = "mit diesem Skalierungsfilter hier ohne Wirkung: wähle einen anderen",
+    [UI_MENU_CRT] = "CRT-Filter",
+    [UI_MENU_CRT_DESC] = "Gibt dem fertigen Bild samt HUD des Spiels das Aussehen eines Röhrenbildschirms. Dieses Menü und die Anzeige "
+                         "bleiben sauber. Wirkt sofort.\n\n"
+                         "Aus: keine zusätzlichen Durchgänge und kein zusätzlicher Speicher. Lottes aperture grille: crt-lottes von Timothy "
+                         "Lottes, ein flaches Streifengitter (ein PVM-ähnlicher Look, kein kalibriertes Modell). Lottes consumer TV: derselbe "
+                         "Shader, gewölbt, mit Lochmaske und Strahlüberstrahlung. Hyllian Fast: crt-hyllian-fast von Hyllian, Scanlines und "
+                         "eine Magenta-Grün-Maske. zfast CRT: zfast von Greg Hogan, weichere Scanlines und eine einfarbige Streifenmaske.\n\n"
+                         "Das sind SDR-Filter: Mit dem eigenen HDR des Spiels werden sie übergangen, die Auswahl bleibt gespeichert.",
+    [UI_MENU_CRT_LOTTES_GRILLE] = "Lottes aperture grille", [UI_MENU_CRT_LOTTES_TV] = "Lottes consumer TV",
+    [UI_MENU_CRT_HYLLIAN] = "Hyllian Fast", [UI_MENU_CRT_ZFAST] = "zfast CRT",
+    [UI_MENU_CRT_NATIVE_HDR] = "mit dem eigenen HDR des Spiels übergangen",
+    [UI_MENU_CRT_LINES] = "CRT-Zeilen",
+    [UI_MENU_CRT_LINES_DESC] = "Die Zeilen des virtuellen Röhrenbildschirms, auf den das Bild gezeichnet wird, nicht die Render-Auflösung. "
+                               "Höchstens die halbe Fensterhöhe; die Breite folgt dem Bildformat. Ist die Fensterhöhe kein ganzes Vielfaches "
+                               "der Zeilen, kann Moiré entstehen.",
+    [UI_MENU_CRT_LINES_240] = "240", [UI_MENU_CRT_LINES_480] = "480", [UI_MENU_CRT_LINES_720] = "720",
+    [UI_MENU_ANTILAG] = "AMD Anti-Lag 2 (experimentell)",
+    [UI_MENU_ANTILAG_DESC] = "AMD-GPUs: Jedes Bild beginnt so spät wie möglich, für weniger Eingabeverzögerung. Nur sichtbar, wo der Treiber es unterstützt.",
+    [UI_MENU_SWITCH2] = "Switch-2-Controller (Bluetooth)",
+    [UI_MENU_SWITCH2_DESC] = "Joy-Con 2 und Pro Controller 2 über Bluetooth, mit HD-Vibration. Zum Koppeln die Sync-Taste bei geöffnetem "
+                             "Spiel halten; danach verbindet jede Taste ihn wieder. Über USB funktionieren sie ohne diese Einstellung. Gilt ab "
+                             "dem nächsten Start.",
+    [UI_PAD_TOUCHPAD] = "Touchpad",
+    [UI_MENU_OV_PART_GAME] = "Spiel", [UI_MENU_OV_PART_TEX] = "Textur-Wartezeiten", [UI_MENU_OV_PART_FENCE] = "GPU-Wartezeiten",
+    [UI_MENU_OV_PART_PRESENT] = "Ausgabe-Wartezeiten", [UI_MENU_OV_PART_PACE] = "Bildlimit",
+    [UI_MENU_OV_FMT_SHARP] = "%s, Schärfe %d%%",
 };
 
 #define SWKBD_ONLY(name, ...) static const char *const name[UI_TEXT_COUNT] = {SWKBD(__VA_ARGS__)}

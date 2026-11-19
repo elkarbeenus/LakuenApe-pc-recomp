@@ -21,10 +21,11 @@ of the 2 MiB-aligned module slot free); the runtime commits it and owns its cont
 +0..15 the frame-rate step (runtime/frame_rate.c), +16..55 the output, swapchain and scene sizes
 (runtime/resolution.c res_init), +56..59 the camera's aspect ratio (runtime/resolution.c res_init, set aspect), +60..63
 the field-of-view factor (runtime/resolution.c res_fov_live, set fov), +0x100..0x113 the Bananza display
-size and aspect (runtime/dkb_wide.c), +0x118..0x11b the Bananza 3D scene ratio (runtime/dkb_wide.c), +0x120..0x127 the Bananza 3.2.0 3D image scale
+size and aspect (runtime/dkb_wide.c), +0x114..0x117 and +0x11c..0x11f its UI projection divisors, +0x118..0x11b the Bananza 3D scene ratio (runtime/dkb_wide.c), +0x120..0x127 the Bananza 3.2.0 3D image scale
 (runtime/dkb_wide.c dkb_wide_scene), +0x200..0x24f the five Bananza mouse-camera host dispatch slots
 (runtime/dkb_camera.c), +0x250..0x25f the Bananza 3.2.0 radial blur lifetime slot (runtime/frame_rate.c
-blur_frames), and +0x260..0x26f the Bananza damped velocity slot (runtime/frame_rate.c damped_sum). A new set
+blur_frames), +0x260..0x26f the Bananza damped velocity slot (runtime/frame_rate.c damped_sum), and +0x270..0x27f the Bananza
+Vert+ slot (runtime/dkb_wide.c vert_plus). A new set
 takes words outside these.
 
 The replacement words are lifted at the site's address in place of the original instruction, and the generated C reads
@@ -36,7 +37,8 @@ patches.h (set names, switches, the page address) next to layout.h for the runti
 A `guard` line adds a check before an instruction and a branch to an instruction of the same function, for game code
 that would follow a bad pointer: the check is a runtime function of one register (runtime/patches.c rt_guard_<kind>),
 and the branch is an edge of the function's flow like any other, so the register and flag plans see it. The guarded
-instruction must be an unpatched op that writes no flags and does not escape (no rt_svc/rt_brk/rt_udf call): the guard
+instruction must be an unpatched op that writes no flags and does not escape (no rt_svc/rt_brk/rt_udf call), or an
+unpatched bl, whose target then must not read flags set before the call (the flag plan sends the call's state): the guard
 branches away before it, so its register and flag state at the target is the one of the instruction before it. The
 generator refuses a guarded instruction that is not. The optional st32 action writes guest memory on the failing path
 only, for game state the target would otherwise read stale (a cached key, say).
@@ -50,7 +52,7 @@ import re
 from pathlib import Path
 
 PAGE = 0x1000
-GUARD_KINDS = ('ptr', 'vcall')   # runtime/patches.c rt_guard_ptr, rt_guard_vcall
+GUARD_KINDS = ('ptr', 'vcall', 'edge')   # runtime/patches.c rt_guard_ptr, rt_guard_vcall, rt_guard_edge
 REG = re.compile(r'x([0-9]|[12][0-9]|30)')
 
 

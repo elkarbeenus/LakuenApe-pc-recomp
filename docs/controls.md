@@ -5,7 +5,33 @@
 > names are written below with the TotK Recomp names. In the Bananza build read `TOTK_*` as `DKB_*` (both work, `DKB_`
 > wins) and `totk.ini` as `dkb.ini` (a `totk.ini` is copied to it on the first run).
 
-Input comes from the first SDL3 gamepad, the keyboard and the mouse, merged into one Switch controller (`runtime/input_win.c`). Buttons are ORed; each stick takes the source with the larger deflection. Keys and mouse buttons count only while the game window is in the foreground. `TOTK_INPUT=none` disables both (automated runs). `TOTK_*` settings can also be set in `totk.ini` next to `totk.exe` (`input = none`, `motion = 0`, `rumble = 0`); the environment overrides the file. `TOTK_RUMBLE_STRENGTH` is the rumble strength in percent (0 to 300, default 130; 0 is the same as `rumble = 0`). `TOTK_RUMBLE_CURVE` is the exponent applied to the amplitude before the strength (0.2 to 1.5, default 0.6; lower makes weak pulses stronger, 1 is linear). `TOTK_RUMBLE_TRIGGERS=1` also drives the impulse triggers of an Xbox pad.
+Input comes from the selected SDL3 gamepad, the keyboard and the mouse, merged into one Switch controller (`runtime/input.c`). Buttons are ORed; each stick takes the source with the larger deflection. Keys and mouse buttons count only while the game window is in the foreground. `TOTK_INPUT=none` disables both (automated runs). `TOTK_*` settings can also be set in `totk.ini` next to `totk.exe` (`input = none`, `motion = 0`, `rumble = 0`); the environment overrides the file. `TOTK_RUMBLE_STRENGTH` is the rumble strength in percent (0 to 300, default 130; 0 is the same as `rumble = 0`). `TOTK_RUMBLE_CURVE` is the exponent applied to the amplitude before the strength (0.2 to 1.5, default 0.6; lower makes weak pulses stronger, 1 is linear). `TOTK_RUMBLE_TRIGGERS=1` also drives the impulse triggers of an Xbox pad. `TOTK_RUMBLE_HD` (`auto` or `off`, default `off` since three third-party Switch Pro pads broke with it: stuck vibration, slow or held buttons, or a dropped link, #363, #383): with `auto`, on a Switch Pro Controller or Joy-Con the game's amplitude and frequency pairs go to the pad as an HD rumble packet (SDL's `SDL_SendGamepadEffect`, strength and curve applied to the amplitudes) instead of the two-motor `SDL_RumbleGamepad` path; `off` keeps that path. A pad that disconnects after HD packets falls back to the two-motor path for the rest of the session, because some Switch-mode clone pads drop the link at their first HD packets (#363). Other pads are unchanged.
+
+## Controller device
+
+Choose **Controller Device** in F1 > Controls > Controller. Changes apply to gameplay and the menu without restarting.
+At startup, a saved manual choice is used when available; otherwise the first available controller is used.
+A newly connected controller takes over automatically, including after a manual choice. If the active controller
+disconnects, another available controller takes over. With no controllers, keyboard and mouse remain available.
+Only the currently active controller controls gameplay and the controller shortcuts.
+
+A manual menu choice applies immediately and is saved for the next startup. Automatic takeovers and fallbacks
+show **Auto: controller name** and do not overwrite that saved startup preference. Choosing Auto explicitly
+resets startup selection to the first available controller. Refreshing the list, opening the menu or changing
+an unrelated setting does not count as a new connection. Devices already connected at launch are a baseline;
+if several arrive between polls, the last enumerated new device is chosen. Discovery may take about one second.
+
+Identities are cached per connected SDL instance ID: routine scans do not repeatedly initialize USB/Bluetooth
+controllers. Failed opens are also remembered until that device disconnects; reconnecting allows a fresh attempt.
+A new/reconnected device can still cause a brief initialization hitch.
+
+The selection is saved as `pad_device` in `totk.ini` (`dkb.ini` in Bananza). Set it to `auto` to reset it, or use
+`TOTK_PAD_DEVICE` / `DKB_PAD_DEVICE` to override it. The other values are opaque device keys written by the menu.
+Devices with serial numbers can be identified across sessions; otherwise identical devices use fallback ordinals,
+which can become ambiguous if their connection order changes. Duplicate names have numbered menu labels.
+
+Motion and vibration use the selected controller's existing capabilities. Switching devices keeps the existing
+button mappings and button-layout setting.
 
 `TOTK_PAD_LAYOUT` (`pad_layout`, the *Button layout* row on the Controls tab, live) picks which face button is Switch A:
 
@@ -36,6 +62,15 @@ The log names the layout in effect (`input: gamepad layout ...`); the menu shows
 
 Esc is unbound in the game; it opens the settings menu and releases the mouse cursor (see Mouse camera). Z and X duplicate ZL and ZR so menu pages turn with two neighbouring keys; the menu tabs (L, R) are Q and R. The mouse wheel is unbound. The bindings are the tables of `input_map` in `runtime/input_map.c`: the keys (platform-neutral key ids) and one gamepad table per layout (gamepad inputs by position); `runtime/input_win.c` translates Win32 virtual keys and SDL buttons.
 
+## Two players (Bananza co-op)
+
+With two gamepads connected, the second one is player 2 (`runtime/ov_input.c`, npad No.2 as a Pro Controller): in the
+pause menu, Co-op mode > Share controllers starts the game's controller check, which the host answers with both
+players at once, and player 2 plays Pauline. The first gamepad stays player 1, and a gamepad plugged in while one is
+connected joins as player 2 instead of taking player 1 over. Player 2 uses the gamepad table of its own layout and the
+`bind_` lines, and has no rumble or motion of its own. `coop = 0` (`TOTK_COOP=0`) keeps one controller. Without a
+gamepad on player 1 (keyboard only) there is no player 2. GameShare is not supported.
+
 ## Xbox button prompts
 
 `pad_layout = xbox_prompts` (*Xbox prompts (A right)* on the Controls tab) is for an Xbox pad played by position. The buttons work as with `nintendo`: the right button, labelled B, does Switch A (interact, confirm), and the bottom one, labelled A, does Switch B (run, cancel). The letters the game shows are swapped to match the labels, A with B and X with Y, so each prompt names the button to press. The other layouts leave the prompts alone: with `xbox` the Switch letters already match the labels.
@@ -49,15 +84,40 @@ The buttons change at once, but the game reads its UI archive and fonts once at 
 
 Without the folder (an install made by an older setup, or one where the setup could not prepare it and showed a warning) the menu says the files are missing, the log has `RomFS overlay: pad_layout = xbox_prompts, but ...`, and the Switch prompts stay; running the setup again on the install folder writes it. In a source build, `.venv-py314\Scripts\python tools\make_romfs_patches.py --version <ver> --xbox-prompts` writes `build\<ver>\romfs-patches-xbox`.
 
+## PlayStation button prompts (Bananza)
+
+With a DualShock 4 or DualSense pad connected when the game starts, Bananza shows PlayStation symbols in its button prompts: a cross, circle, square and triangle for the face buttons, L1, R1, L2 and R2 for the shoulder buttons and triggers, and the Options and Create marks for + and -. `pad_prompts` in `dkb.ini` chooses: `auto` (default) as above, `playstation` always, `switch` never. The game reads its fonts once at boot, so a pad connected later, or a changed setting, takes effect at the next start. The log says `RomFS overlay: PlayStation button prompts` when they are on.
+
+Each face-button symbol names the button that does it, so it follows `pad_layout` and the `bind_` lines, as the buttons do:
+
+- `auto` (a Sony pad counts as `xbox`) and `xbox`: Switch A is the bottom button, so A shows the cross, B the circle, X the square and Y the triangle. The face-button diamonds that point at one button point at the bottom one for A, and so on.
+- `nintendo` and `xbox_prompts`: Switch A is the right button, so A shows the circle, B the cross, X the triangle and Y the square.
+
+- `bind_` lines that swap one pair of face buttons: with `bind_X = pad:north` and `bind_Y = pad:west` over the Xbox layout (A cross, B circle, X triangle, Y square), or `bind_A = pad:south` and `bind_B = pad:east` over the Nintendo one (the same four), and the opposite mix (A circle, B cross, X square, Y triangle), the symbols follow. A setup from before this change has no folder for these; the log then says to run the setup again and the symbols stay those of `pad_layout`. Other face-button remaps, and the other buttons, keep the symbol of the Switch button they were.
+
+`auto` looks at every pad connected at start, not at the one `pad_device` chooses (the choice is made later, when input starts): with a PlayStation pad connected next to the one you play with, set `pad_prompts = switch`.
+
+Every prompt is a glyph of one font, `scft/NinDev-HardKey.bfotf`, the same in each `Font/Font*.Nin_Ounce_NVN2.bfarc.zs`: an irregular plate with the button's letter cut out of it (`tools/dkb_prompt_survey.py` found it). The setup runs `tools/dkb_ps_prompts.py`, which keeps each plate of the user's own font and cuts the PlayStation symbol into it instead of the letter: the symbols, the 1 and the 2 are drawn by the tool, and the L and R are the game's, from its ZL and ZR glyphs. It writes `romfs-patches-ps` and `romfs-patches-ps-nintendo`, and `romfs-patches-ps-senw` and `romfs-patches-ps-eswn` for the two mixes (the positions of A, B, X and Y: south, east, west, north), next to `romfs-index.bin`; `runtime/romfs.c` (`ps_prompts_init`) loads the one for the face buttons in effect next to the other overlays, which replace no Font archive. The D-pad, the sticks, Home and the controller pictures stay as the game draws them.
+
 ## Window keys
 
 | Key | Gamepad | Action |
 |---|---|---|
-| F1 or Esc | Guide (Xbox, PS) button, or Minus and Plus together | open or close the settings menu; the game gets no input while it is open |
-| F10 | L3 + R3 (both stick clicks) | performance overlay: off, frame rate, full panel |
-| F11 | | windowed, or back to the last full-screen mode (`window_mode`), saved to `totk.ini` |
+| F1 or Esc | Guide / Home button, or Minus + Plus together (default) | open or close the settings menu; the game gets no input while it is open |
+| F10 | L3 + R3 (both stick clicks) | performance overlay: off, frame rate, full panel, full panel with the frame time broken into its parts, counter |
+| F11 | Hold Start + Back for 0.5 seconds (opt-in) | windowed, or back to the last full-screen mode (`window_mode`), saved to `totk.ini` |
 
-The Minus+Plus combo never reaches the game. In the menu the arrow keys, the D-pad or the left stick move, Enter or A selects, Q and E or L and R switch tabs, Esc or B goes back (Switch button names, as in the table above).
+By default, the original immediate Minus + Plus settings shortcut remains available and follows the current bindings.
+Enable **Fullscreen hold shortcut** in F1 > Controls > Controller (`pad_fullscreen_hold = 1`, or
+`TOTK_PAD_FULLSCREEN_HOLD` / `DKB_PAD_FULLSCREEN_HOLD`) to replace that combination with fullscreen.
+The setting defaults to off and takes effect immediately. Guide / Home and keyboard F1 work in either mode.
+In Steam Deck Game Mode, enabling the fullscreen hold leaves only keyboard F1 to open settings when Steam intercepts Guide / Home.
+
+The opt-in fullscreen hold uses the selected controller's physical SDL Start and Back buttons (Options + Create on DualSense), independently of button remapping. It fires once per hold; release both buttons before repeating. Once the buttons overlap, neither reaches the game until both are released. An individual button pressed before the combination forms still works normally. Switching or reconnecting controllers does not inherit a held shortcut.
+
+The read-only **Shortcuts** section above **Buttons** shows settings, fullscreen and performance shortcuts using the selected controller's button labels and the enabled shortcut mode. Performance data follows the current stick-click bindings, as before. Guide / Home must be forwarded by the operating system or streaming client.
+
+In the menu the arrow keys, the D-pad or the left stick move, Enter or A selects, Q and E or L and R switch tabs, Esc or B goes back (Switch button names, as in the table above).
 
 ## Remapping
 
@@ -65,7 +125,7 @@ Under *Controls*, open *Controller* to remap controller buttons or *Mouse & Keyb
 
 The tab writes `totk.ini` lines, one per Switch button or stick direction: `bind_<button> = <entry>, <entry>, ...`. The button is `A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LCLICK RCLICK`, or a stick direction `LSTICK_LEFT LSTICK_UP LSTICK_RIGHT LSTICK_DOWN` (movement, W A S D by default) and `RSTICK_...` (camera, the arrow keys). An entry is `pad:<name>` or `key:<name>`:
 
-- pad names: `south east west north l r zl zr start back lstick rstick dpad_left dpad_up dpad_right dpad_down lpaddle1 rpaddle1 lpaddle2 rpaddle2` (`zl`, `zr` are the triggers; the paddles are the back buttons of an Xbox Elite, DualSense Edge or Steam Controller, upper pair 1, lower pair 2, and no Switch button has them by default)
+- pad names: `south east west north l r zl zr start back lstick rstick dpad_left dpad_up dpad_right dpad_down lpaddle1 rpaddle1 lpaddle2 rpaddle2 touchpad` (`zl`, `zr` are the triggers; the paddles are the back buttons of an Xbox Elite, DualSense Edge or Steam Controller, upper pair 1, lower pair 2; `touchpad` is the DualSense and DualShock 4 touchpad click; no Switch button has the paddles or the touchpad by default)
 - key names: `a` to `z`, `0` to `9`, `f2` to `f7`, `f9`, `f12`, `num0` to `num9`, `space tab enter backspace lshift rshift lctrl rctrl lalt capslock insert delete home end pageup pagedown up down left right`, `num_add num_sub num_mul num_div num_decimal`, `minus equals lbracket rbracket semicolon apostrophe comma period slash backslash grave`, `mouse_l mouse_r mouse_m mouse_x1 mouse_x2`
 - `key:default` and `pad:default` keep that part's defaults (`pad:default` is each layout's own button).
 - `none` leaves the button unbound.
@@ -95,7 +155,45 @@ The stick direction bits (`StickLLeft` to `StickRDown`) are derived from the sti
 
 ## Nintendo Switch 2 controllers
 
-Windows does not present the Switch 2 Pro Controller as a gamepad SDL can open (the log says `input: no gamepad`), so it needs a bridge program that wakes it and creates a virtual gamepad. The DS4Windows fork by hbashton ([github.com/hbashton/DS4Windows](https://github.com/hbashton/DS4Windows), tested with release VIIPERRC4.5.1, a pre-release) with the output set to an emulated DualSense gives buttons, rumble, gyro and accelerometer, and reads the sticks through the controller's calibration (they rest at 0 to 2%). The game reads its virtual DualSense directly; the log then shows `input: gamepad "DualSense Wireless Controller" (rumble, gyro and accelerometer, ...)` and `input: motion sensors on`. Its release notes also list Joy-Con 2 support, which is untested here.
+### Over Bluetooth (built in)
+
+With `switch2 = 1` in `totk.ini` (F1 > Controls > Controller > "Switch 2 controllers (Bluetooth)", applied at the next
+start) the game talks to a Pro Controller 2 or Joy-Con 2 over Bluetooth LE itself: no bridge program. On Windows it
+uses the system's Bluetooth through WinRT (`runtime/switch2_win.c`; Windows 10 or 11, a Bluetooth LE adapter), on Linux
+BlueZ over D-Bus (`runtime/switch2_bluez.c`); macOS has no transport yet. The code is ported from
+[mkw-recomp](https://github.com/adriadam10/mkw-recomp) (`runtime/input/switch2*.c`, MIT), whose protocol header comes
+from seedds/mkw-neo.
+
+- **Pairing:** start the game, then hold the small Sync button on the controller until its lights sweep. The log shows
+  `input: Pro Controller 2 ... paired with this PC`. From then on, any button wakes it and it reconnects to this PC
+  (pairing it with the console again moves it back there). Do not pair it in Windows' Bluetooth
+  settings: the game connects it itself.
+- **Joy-Con 2:** one Joy-Con alone is held sideways; a left and a right connected together are one controller.
+- **What works:** buttons, both sticks with the controller's own calibration, Home, gyro and accelerometer (the
+  six-axis sensor), player lights, and the game's **HD rumble**: every vibration value the game sets (amplitude and
+  frequency of the low and the high band, left and right) goes to the controller's actuators as it comes, three 5 ms
+  samples a packet, left side to the left grip and right side to the right grip (`switch2.c` `rumble`,
+  `ov_input.c` `rumble_update`). `rumble_strength` and `rumble_curve` apply; `rumble_hd` does not matter for these
+  controllers. Each controller appears as an SDL gamepad named "Pro Controller 2 (Bluetooth)" or
+  "Joy-Con 2 (Bluetooth)" and can be picked in Controller Device like any other.
+- **Not found?** `switch2 = 2` also logs every Bluetooth LE device that advertises, once. Close other programs that
+  talk to the controller (a bridge, Steam), and turn Bluetooth on before starting the game.
+
+### Over USB
+
+SDL 3.4 drives the Switch 2 controllers over USB (`SDL_hidapi_switch2.c`) when it is built with libusb: buttons,
+sticks, gyro and two-motor rumble, which SDL plays as the controller's own rumble at fixed frequencies (the game's HD
+frequencies need Bluetooth: SDL's driver takes no raw rumble data). On Linux distribution SDL3 packages usually have
+libusb. On Windows SDL loads `libusb-1.0.dll` and needs the controller's second USB interface on the WinUSB driver
+(once per controller with Zadig: Options > List All Devices, the controller's **Interface 1**, WinUSB, Replace Driver;
+never Interface 0). Neither the MSYS2 nor the upstream Windows SDL3 build has libusb, so a Windows build needs an SDL3
+built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and `libusb-1.0.dll` beside `totk.exe` (as
+mkw-recomp's `tools/build/windeps.py` does). These controllers never take the Switch 1 HD packet (`rumble_hd`), so
+they stay on the two-motor path even with `rumble_hd = auto`.
+
+### Through a bridge program
+
+Without the above, Windows does not present the Switch 2 Pro Controller as a gamepad SDL can open (the log says `input: no gamepad`), so it needs a bridge program that wakes it and creates a virtual gamepad. The DS4Windows fork by hbashton ([github.com/hbashton/DS4Windows](https://github.com/hbashton/DS4Windows), tested with release VIIPERRC4.5.1, a pre-release) with the output set to an emulated DualSense gives buttons, rumble, gyro and accelerometer, and reads the sticks through the controller's calibration (they rest at 0 to 2%). The game reads its virtual DualSense directly; the log then shows `input: gamepad "DualSense Wireless Controller" (rumble, gyro and accelerometer, ...)` and `input: motion sensors on`. Its release notes also list Joy-Con 2 support, which is untested here.
 
 Bridges that output a ViGEm DualShock 4 (ProCon2Windows, connectyourpro as tested) give buttons and rumble but no motion: their virtual DualShock 4 reports a gyro and an accelerometer that never change, so motion aiming and Ultrahand rotation do nothing. Run one bridge at a time; Steam Input can also claim the controller, so close Steam if the bridge does not find it.
 
@@ -131,6 +229,10 @@ A wait is reached once the wait before it held (or at the start); the lines befo
 For A/B and image tests, `TOTK_FIXED_STEP=1` (or `DKB_FIXED_STEP=1`) with the real-time step on (`TOTK_REALTIME=1`) steps the game 1/60 s per presented frame whatever the frame took, so game time is frames / 60 in every run: the game runs slower than real time when frames take longer than 1/60 s. Without the real-time step the game already steps whole vsyncs of its own present interval, which its controller can raise when a frame runs late.
 
 `TOTK_INPUT_RECORD=<file>` (`input_record` in `totk.ini`, or Input recording in the menu) writes the merged input in the same format, one line per button press and per stick segment: events before the world clock starts by tick, the rest timed; a button or stick held when the world clock starts is cut there and goes on as a timed event. The file replays as a script, which makes it the repro to attach to a bug report. The recording writes no wait lines: add them by hand where a press must follow a screen, with a `TOTK_TRACE=fs` log of the recorded run for the file and its time.
+
+`DKB_LIVE_INPUT=<file>` drives player 1 from the first line of a file the harness rewrites while the game runs
+(button names as above, `LSTICK:x:y`, `RSTICK:x:y`); `DKB_LIVE_INPUT2=<file>` does the same for player 2, which counts
+as connected while it is set (with `coop = 1`), so the two-player mode can be tested with one gamepad or none.
 
 `TOTK_TEST_PAD=<lx>,<ly>,<rx>,<ry>` attaches an SDL virtual gamepad at start whose sticks rest at these raw SDL axis values (-32768 to 32767, down is +y), so a drifting or held stick can be tested without a controller: the values go through the gamepad mapping and `TOTK_STICK_DEADZONE` like a real pad's, and `TOTK_INPUT_RECORD` shows what reached the game.
 

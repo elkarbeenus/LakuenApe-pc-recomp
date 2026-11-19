@@ -9,6 +9,12 @@ area = "tools"
 cmd = ["{python}", "tests/check_content_test.py"]
 
 [[test]]
+name = "dkb-ps-prompts"
+tier = 0
+area = "tools"
+cmd = ["{python}", "tests/dkb_ps_prompts_test.py"]
+
+[[test]]
 name = "nup-extract"
 tier = 0
 area = "tools"
@@ -20,6 +26,12 @@ tier = 0
 area = "tools"
 cmd = ["{python}", "tests/worktree_test.py"]
 known_failure = "with git 2.52, a plain git worktree remove --force follows the build/ junction and deletes the main checkout's files (tools/worktree.py remove is safe)"
+
+[[test]]
+name = "import-stubs"
+tier = 0
+area = "cpu"
+cmd = ["{python}", "tests/import_stubs_test.py"]
 
 [[test]]
 name = "spin-waits"
@@ -70,10 +82,22 @@ area = "gfx"
 cmd = ["{python}", "tests/dkb_wide_layout_test.py"]
 
 [[test]]
+name = "layout-neutral-runtime"
+tier = 0
+area = "runtime"
+cmd = ["{python}", "tests/layout_neutral_runtime_test.py"]
+
+[[test]]
 name = "installer-update"
 tier = 0
 area = "installer"
 cmd = ["{python}", "tests/installer_update_test.py"]
+
+[[test]]
+name = "installer-fsr4"
+tier = 0
+area = "installer"
+cmd = ["{python}", "tests/installer_fsr4_test.py"]
 
 [[test]]
 name = "lowend-bench"
@@ -94,6 +118,18 @@ area = "tools"
 cmd = ["{python}", "tests/perf_evidence_test.py"]
 
 # ------------------------------------------------------------------ tier 1
+
+[[test]]
+name = "build-game-keys"
+tier = 1
+area = "tools"
+cmd = ["{python}", "tests/build_game_keys_test.py"]
+
+[[test]]
+name = "romfs-image"
+tier = 1
+area = "tools"
+cmd = ["{python}", "tests/romfs_image_test.py"]
 
 [[test]]
 name = "flags-check"
@@ -160,6 +196,13 @@ area = "nvn"
 cmd = ["{python}", "tests/nvn_wait_sync_test.py", "--cc", "{cc}"]
 
 [[test]]
+name = "plat-cond"
+tier = 1
+area = "os"
+cmd = ["{python}", "tests/plat_cond_test.py", "--cc", "{cc}"]
+platform = "linux"
+
+[[test]]
 name = "nvn2-compute-c0"
 tier = 1
 area = "nvn"
@@ -194,6 +237,18 @@ name = "vk-memory-inspect"
 tier = 1
 area = "gfx"
 cmd = ["{python}", "tests/vk_memory_inspect_test.py", "--cc", "{cc}", "--deps", "{deps}"]
+
+[[test]]
+name = "staged-blocked"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/staged_blocked_test.py", "--cc", "{cc}", "--out", "{out}"]
+
+[[test]]
+name = "rec-capture-alone"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/rec_capture_alone_test.py", "--cc", "{cc}", "--deps", "{deps}", "--out", "{out}"]
 
 [[test]]
 name = "vk-prefix-read"
@@ -359,6 +414,13 @@ area = "installer"
 cmd = ["{python}", "tests/installer_dotnet_test.py", "--dotnet", "{dotnet}"]
 
 [[test]]
+name = "launcher-e2e"
+tier = 1
+area = "installer"
+platform = "windows"
+cmd = ["{python}", "tests/launcher_e2e.py", "--cc", "{cc}"]
+
+[[test]]
 name = "alpha-ref-step"
 tier = 1
 area = "shaders"
@@ -371,10 +433,30 @@ area = "shaders"
 cmd = ["{python}", "tests/alpha_test_spirv_test.py", "--cc", "{cc}", "--spirv-val", "{spirv_val}", "--out", "{out}"]
 
 [[test]]
+name = "dkb-wide"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/dkb_wide_test.py", "--cc", "{cc}", "--out", "{out}"]
+needs = ["cc"]
+
+[[test]]
 name = "aoc-romfs"
 tier = 1
 area = "os"
 cmd = ["{python}", "tests/aoc_romfs_test.py", "--cc", "{cc}", "--out", "{out}"]
+
+[[test]]
+name = "switch-rumble"
+tier = 0
+area = "os"
+cmd = ["{python}", "tests/switch_rumble_test.py", "--cc", "{cc}", "--out", "{out}"]
+needs = ["cc"]
+
+[[test]]
+name = "mods-scan"
+tier = 1
+area = "os"
+cmd = ["{python}", "tests/mods_scan_test.py", "--cc", "{cc}", "--out", "{out}"]
 
 [[test]]
 name = "call-fallthrough"
@@ -437,6 +519,36 @@ area = "gfx"
 cmd = ["{python}", "tests/fg_pace_test.py", "--cc", "{cc}"]
 
 [[test]]
+name = "fsr3fi-bindings"
+tier = 0
+area = "shaders"
+cmd = ["{python}", "tests/fsr3fi_bindings_test.py"]
+
+[[test]]
+name = "temporal-idle"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/temporal_idle_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "linux-pressure"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/linux_pressure_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "sampler-book"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/sampler_book_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "astc-opaque"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/astc_opaque_test.py", "--cc", "{cc}"]
+
+[[test]]
 name = "geometry-feature-flags"
 tier = 1
 area = "geometry"
@@ -468,6 +580,24 @@ area = "os"
 cmd = ["{python}", "tests/input_script_test.py", "--cc", "{cc}"]
 
 [[test]]
+name = "controller-hold"
+tier = 1
+area = "os"
+cmd = ["{python}", "tests/controller_hold_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "switch2-rumble"
+tier = 1
+area = "os"
+cmd = ["{python}", "tests/switch2_rumble_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "controller-devices"
+tier = 1
+area = "os"
+cmd = ["{python}", "tests/controller_devices_test.py", "--cc", "{cc}"]
+
+[[test]]
 name = "jcms-abi"
 tier = 1
 area = "os"
@@ -480,10 +610,22 @@ area = "tools"
 cmd = ["{python}", "tests/msort_test.py", "--cc", "{cc}", "--out", "{out}"]
 
 [[test]]
+name = "usnap-prune"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/usnap_prune_test.py", "--cc", "{cc}", "--out", "{out}"]
+
+[[test]]
 name = "nan-guard-spirv"
 tier = 1
 area = "shaders"
 cmd = ["{python}", "tests/nan_guard_spirv_test.py", "--cc", "{cc}", "--spirv-val", "{spirv_val}", "--out", "{out}"]
+
+[[test]]
+name = "lq-fold-spirv"
+tier = 1
+area = "shaders"
+cmd = ["{python}", "tests/lq_fold_spirv_test.py", "--cc", "{cc}", "--spirv-val", "{spirv_val}", "--out", "{out}"]
 
 [[test]]
 name = "note-written"
@@ -504,10 +646,22 @@ area = "gfx"
 cmd = ["{python}", "tests/par_plan_test.py", "--cc", "{cc}"]
 
 [[test]]
+name = "sync-note-merge"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/sync_note_merge_test.py", "--cc", "{cc}"]
+
+[[test]]
 name = "spirv-screen-uv"
 tier = 1
 area = "shaders"
 cmd = ["{python}", "tests/spirv_screen_uv_test.py", "--cc", "{cc}", "--spirv-val", "{spirv_val}", "--out", "{out}"]
+
+[[test]]
+name = "spirv-instance-c4"
+tier = 1
+area = "shaders"
+cmd = ["{python}", "tests/spirv_instance_c4_test.py", "--cc", "{cc}", "--spirv-val", "{spirv_val}", "--out", "{out}"]
 
 [[test]]
 name = "system-services"
@@ -705,6 +859,14 @@ cmd = ["{game_exe}", "--probe-gfx-abi"]
 exclusive = true
 
 [[test]]
+name = "exe-probe-vkreset"
+tier = 3
+area = "gfx"
+cmd = ["{game_exe}", "--probe-vkreset"]
+needs = ["gpu"]
+exclusive = true
+
+[[test]]
 name = "exe-probe-astc"
 tier = 3
 area = "gfx"
@@ -758,3 +920,50 @@ name = "runtime-sources"
 tier = 0
 area = "tools"
 cmd = ["{python}", "tests/runtime_sources_test.py"]
+
+[[test]]
+name = "nup-aoc"
+tier = 1
+area = "tools"
+cmd = ["{python}", "tests/nup_aoc_test.py"]
+
+[[test]]
+name = "nx-extract"
+tier = 0
+area = "tools"
+cmd = ["{python}", "tests/nx_extract_test.py"]
+
+[[test]]
+name = "window-filter"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/window_filter_test.py", "--cc", "{cc}"]
+
+[[test]]
+name = "perf-check"
+tier = 0
+area = "tools"
+cmd = ["{python}", "tests/perf_check_test.py"]
+
+[[test]]
+name = "scenario-runner"
+tier = 0
+area = "tools"
+cmd = ["{python}", "tests/scenario_test.py"]
+
+[[test]]
+name = "save-warp"
+tier = 0
+area = "tools"
+cmd = ["{python}", "tests/save_warp_test.py"]
+
+# ------------------------------------------------------------------ tier 4: scripted game runs (tools/scenario.py)
+# Each needs your build and the scenario's private save under build/saves/; without the save it is skipped (exit 77).
+
+[[test]]
+name = "scenario-tutorial-cave"
+tier = 4
+area = "scenario"
+cmd = ["{python}", "tools/scenario.py", "tutorial-cave"]
+needs = ["game_exe", "gpu"]
+timeout = 900

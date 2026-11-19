@@ -50,6 +50,12 @@ from module import Module  # noqa: E402
 
 TERMINATORS = ('b', 'br', 'ret', 'trap')
 MUSTTAIL = '__attribute__((musttail)) return'
+# Imports that return twice. A call to one gets a host setjmp in the calling function's frame, armed by rt_setjmp_arm
+# (runtime/hostfn.c): the runtime's longjmp (HOST_OVERRIDE there) restores the guest registers and longjmps to it, so
+# execution goes on after the call with the host frames above it unwound. The lifted guest longjmp would `br x30`
+# into the middle of the caller instead, which rt_dispatch cannot enter. The CRT's setjmp: __builtin_setjmp restores
+# no callee-saved register on Win64 (runtime/kernel.c, exit_now).
+SETJMP = frozenset({'setjmp', '_setjmp', '__setjmp'})
 
 # Estimated bytes of C per instruction, by class, for chunking (estimate_sizes()).
 # Least squares over every function of main, subsdk0 and sdk (1.2.1) gives 62 / 75 / 48 bytes per instruction, 38
@@ -218,6 +224,8 @@ class Emitter:
         self.kept = regs.CALLEE_SAVED if callee_saved else frozenset()   # not reloaded after a call
         self.uses_patches = False
         self.uses_guards = False
+        self.uses_setjmp = False
+        self.setjmp_stubs = mod.import_stubs(SETJMP)   # PLT stubs of setjmp
         self.stats = Counter()
         self.unsupported = Counter()
 
@@ -332,11 +340,15 @@ class Emitter:
             if not entry <= t < end:
                 raise patches.PatchError(f'{a:#x}: guard target {t:#x} outside the function {entry:#x}-{end:#x}')
             # The guard's edge leaves before the instruction runs, but the flow keeps it as an edge of that instruction
-            # (state after it): safe only when the instruction changes no flags, makes no call and does not escape.
+            # (state after it): safe only when the instruction changes no flags, makes no call (except a bl, below) and does
+            # not escape.
             g = insns[(a - entry) // 4]
-            if a in self.patched or g.kind != 'op' or flags.effect(g.code or '')[1] or regs.ESCAPE.search(g.code or ''):
+            # A bl is allowed: the check runs before the call, so the branch skips it with x30 untouched and the
+            # registers still in their locals (the call spills them only after the check passes).
+            if a in self.patched or g.kind not in ('op', 'bl') or (g.kind == 'op' and (
+                    flags.effect(g.code or '')[1] or regs.ESCAPE.search(g.code or ''))):
                 raise patches.PatchError(f'{a:#x}: a guard needs an unpatched op that writes no flags and does not '
-                                         f'escape, not a {g.kind}: {g.code}')
+                                         f'escape, or a bl, not a {g.kind}: {g.code}')
             labels.add(t)
         # An unresolved computed br re-enters the function through fb_<entry>, a C function of its own, which local
         # flags would not survive; such functions keep NZCV in c->nzcv.
@@ -390,7 +402,23 @@ class Emitter:
             if fp.used:
                 out.append('    ' + fp.decl())
 
+        # A stub that is not a function start goes the normal way (rt_dispatch): the setjmp lowering calls it directly.
+        sj = {t for t in self.setjmp_stubs if t in starts}
+        jbs = [entry + 4 * i for i, ins in enumerate(insns) if ins.kind == 'bl' and ins.target in sj]
+        if jbs and all_labels:
+            # fb_<entry> re-enters through a musttail call, which replaces the frame that holds the jmp_bufs.
+            raise ValueError(f'{entry:#x}: setjmp call at {jbs[0]:#x} in a function with an unresolved computed br')
+        if jbs:
+            out.append('    ' + ' '.join(f'jmp_buf jb_{a:x};' for a in jbs))
+            self.uses_setjmp = True
+            self.stats['setjmp_sites'] += len(jbs)
+
         def call(t, a):
+            if t in sj:   # the guest setjmp still runs, so env holds what it stores there
+                jb = f'jb_{a:x}'
+                refs.add(t)
+                return (f'c->x[30] = {hx(a + 4)}; {spill}rt_setjmp_arm(c, {jb}); '
+                        f'if (!RT_SETJMP({jb})) {fname(t)}(c);{reload}')
             if t in starts:
                 refs.add(t)
                 return f'c->x[30] = {hx(a + 4)}; {spill}{fname(t)}(c);{reload_call}'
@@ -481,7 +509,10 @@ class Emitter:
             for i, line in body:
                 if i is not None:
                     texts[i] += line
+            # A guarded instruction is not clean: its guard edge leaves before it, so the dirty locals must be spilled
+            # along that edge too
             clean = {i for i, ins in enumerate(insns) if entry + 4 * i not in self.patched
+                     and entry + 4 * i not in self.guards
                      and (ins.kind in ('bl', 'blr') or (ins.kind == 'op' and regs.RELOAD in texts[i]))}
             rp = regs.plan(texts, succ, clean, self.reg_locals, self.kept)
             if rp.regs:
@@ -500,7 +531,7 @@ class Emitter:
 def chunk_text(name, number, emitter, fns):
     """C text of one chunk. fns: [(entry, end)]."""
     body, refs = [], set()
-    emitter.uses_patches = emitter.uses_guards = False
+    emitter.uses_patches = emitter.uses_guards = emitter.uses_setjmp = False
     for entry, end in fns:
         lines, r = emitter.function(entry, end)
         body.append('\n'.join(lines))
@@ -509,8 +540,13 @@ def chunk_text(name, number, emitter, fns):
     protos = ''.join(f'void {fname(r)}(Cpu *c);\n' for r in sorted(refs))
     if emitter.uses_patches:
         protos += 'extern uint8_t rt_patch_on[];\n'
+    if emitter.uses_setjmp:
+        # _setjmp on POSIX: no signal mask to save, and the runtime's longjmp is _longjmp (runtime/hostfn.c).
+        protos += ('#include <setjmp.h>\nvoid rt_setjmp_arm(Cpu *c, void *jb);\n'
+                   '#ifdef _WIN32\n#define RT_SETJMP setjmp\n#else\n#define RT_SETJMP _setjmp\n#endif\n')
     if emitter.uses_guards:
-        protos += 'int rt_guard_ptr(uint64_t p);\nint rt_guard_vcall(uint64_t obj);\n'
+        protos += ('int rt_guard_ptr(uint64_t p);\nint rt_guard_vcall(uint64_t obj);\n'
+                   'int rt_guard_edge(uint64_t node);\n')
     return (header(f'{name} chunk {number:04d}') + '#include "cpu.h"\n#include "simd.h"\n\n' + protos + '\n'
             + '\n\n'.join(body) + '\n')
 

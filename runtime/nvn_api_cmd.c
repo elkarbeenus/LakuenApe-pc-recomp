@@ -10,13 +10,14 @@
 // the same command memory to several command buffers recording at once (budgeted for real NVN encodings), and our
 // records are larger. The game's command and control memory is accounted only. EndRecording copies the finished
 // recording into host memory; the handle is that copy (a flat OP_BEGIN ... OP_END sequence) and lives until the game
-// adds the same control memory again. CallCommands and CopyCommands inline the called recording, so copies hold no
-// OP_CALL or OP_JUMP.
+// adds the same control memory again. CallCommands and CopyCommands inline the called recording, or with TOTK_CALL_REF
+// record one OP_CALL naming its copy (inline_recording); copies hold no OP_JUMP.
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "gfx.h"
 #include "host.h"
 #include "nvn_api.h"
@@ -26,6 +27,7 @@
 
 #define CMD_MAGIC MAGIC('C', 'M', 'D', 'B')
 #define COPY_MAGIC 0x59504f43444d43ull     // "CMDCOPY": prefix of a live recording copy
+#define REC_MAGIC 0x4345524d444d43ull      // "CMDMREC": prefix of a live recording buffer
 #define OP_RESERVE 24                       // room always kept at the end of the recording buffer
 #define MIN_COMMAND_SIZE 512                // NVN_DEVICE_INFO_COMMAND_BUFFER_MIN_COMMAND_SIZE (nvn_api_core.c devinfo)
 #define MIN_CONTROL_SIZE 256                // NVN_DEVICE_INFO_COMMAND_BUFFER_MIN_CONTROL_SIZE
@@ -71,27 +73,64 @@ static void memory_event(Cpu *c, cmd_t *o, int event, uint64_t min) {
 }
 
 // ---------- recording buffer
+#define SEG_TOK(o) ((uint32_t)(((uintptr_t)(o) >> 3) & 0x7fffffffu))
+#define SEG_OWNED(o) ((o)->seg && (o)->seg_tok == SEG_TOK(o))
+// The prefix of a copy and of a recording buffer (see "recording copies" below).
+typedef struct { uint64_t magic, bytes, made_at, used_at, deferred, block; uint32_t refs; uint16_t flags, depth; } copy_prefix;
+_Static_assert(sizeof(copy_prefix) % 8 == 0, "records stay 8-byte aligned");
+#define COPY_CALLS 1u   // copy_prefix.flags (see "recording copies" below)
+#define COPY_WAITS 2u
 static void put_hdr(uint8_t *p, uint32_t op, uint32_t size) {
     op_hdr h = {op, size};
     memcpy(p, &h, sizeof h);
 }
 
+// The recording buffer is a copy block (copy_block below) with the copy's prefix in front, so EndRecording can hand
+// it over as the copy (take_recording). rec_buffer: one with room for at least cap bytes after the prefix, and the
+// room in *room.
+static uint8_t *rec_buffer(size_t cap, size_t *room);
+static void rec_buffer_free(uint8_t *seg);
+static int rec_owned(const cmd_t *o);
+static void drop_recording_calls(cmd_t *o);
+
+// Diagnostic for a seg that is no buffer of ours: a command buffer object the game overwrote or copied shows a wrong
+// magic or more used than its old size.
+static void seg_check(const cmd_t *o, size_t need) {
+    if (!o->seg) return;
+    const copy_prefix *pf = (const copy_prefix *)o->seg - 1;
+    size_t size = (size_t)(o->end - o->seg), used = (size_t)(o->cur - o->seg);
+    if (o->cur < o->seg || o->cur > o->end || size + sizeof *pf != (size_t)pf->block)
+        rt_fatal("nvn: corrupt recording buffer (command buffer %p, magic %#x, buffer %p of %zu bytes, %zu used, %zu "
+                 "asked, block %llu)", (const void *)o, o->magic, (const void *)o->seg, size, used, need,
+                 (unsigned long long)pf->block);
+}
+
 static void cmd_reserve(cmd_t *o, size_t need) {
-    if (o->seg && o->cur + need + OP_RESERVE <= o->end) return;
+    if (o->seg && SEG_OWNED(o) && o->cur + need + OP_RESERVE <= o->end) return;
+    int twin = o->seg && !SEG_OWNED(o);
+    if (twin) {   // a copied cmd_t: its seg may be a handed-over copy or already freed, so it is not read
+        rt_log("nvn: command buffer %p records on a buffer it does not own; starting a new one", (void *)o);
+        drop_recording_calls(o);   // not its own to read: the lost records' counts stay taken
+        o->seg = o->cur = o->end = NULL;
+    } else {
+        seg_check(o, need);
+    }
     size_t used = o->seg ? (size_t)(o->cur - o->seg) : 0;
     size_t cap = o->seg ? (size_t)(o->end - o->seg) : 0;
-    if (!cap) cap = 64 << 10;
+    if (!cap) cap = 48 << 10;
     while (used + need + OP_RESERVE > cap) cap *= 2;
-    uint8_t *b = realloc(o->seg, cap);
-    // A block this size fails only without commit (the fatal report states it) or when seg is no block of ours: a
-    // command buffer object the game overwrote or copied shows a wrong magic or more used than its old size.
-    if (!b)
-        rt_fatal("nvn: command recording buffer of %zu bytes (command buffer %p, magic %#x, buffer %p of %zu bytes, %zu "
-                 "used, %zu asked)", cap, (void *)o, o->magic, (void *)o->seg, o->seg ? (size_t)(o->end - o->seg) : 0,
-                 used, need);
+    size_t room;
+    uint8_t *b = rec_buffer(cap, &room);
+    if (used) memcpy(b, o->seg, used);
+    rec_buffer_free(o->seg);
     o->seg = b;
+    o->seg_tok = SEG_TOK(o);
     o->cur = b + used;
-    o->end = b + cap;
+    o->end = b + room;
+    if (twin && o->recording) {   // the lost records are gone; keep what follows a valid recording
+        put_hdr(o->cur, OP_BEGIN, 8);
+        o->cur += 8;
+    }
 }
 
 // Space for one record (header included); the header's op is filled by the caller.
@@ -168,8 +207,90 @@ static const tex_t *tex_pin(const NVNtexture *nt) {
 // adding control memory again releases the copies recorded there without walking every live copy. 4 KiB pages cost
 // about 500 lookups per AddControlMemory under the exclusive lock (1.4.3 field: 53 calls a frame, 2 MiB ranges, 3.7
 // copies per page), and the recording threads waited on it.
-typedef struct { uint64_t magic, bytes, made_at, used_at, deferred; } copy_prefix;   // deferred: 0 unknown, 1 none, 2 some
-_Static_assert(sizeof(copy_prefix) % 8 == 0, "records stay 8-byte aligned");
+// deferred: 0 unknown, 1 none, 2 some. block: the size of the block the prefix starts (copy_block). refs
+// (TOTK_CALL_REF): the OP_CALL records in other copies that name this one; flags bit 0 (COPY_CALLS): this copy holds
+// OP_CALL records; bit 1 (COPY_WAITS): it, or a copy it calls, holds an OP_WAIT_SYNC record; depth: the longest chain of
+// OP_CALL records from this copy down (0 without any). A copy never changes after take_recording, so the submit scans
+// (wait_target, resolve_deferred) skip a copy whose prefix says it holds nothing for them.
+
+// The blocks of copies and recording buffers of 64 KiB and more (the prefix included) come in power-of-two sizes and
+// go back to a cache when released, up to BLK_CACHE bytes, instead of to the heap. The CRT hands blocks of about
+// 512 KiB and more to VirtualAlloc and VirtualFree, so every copy wrote into new pages and took a demand-zero fault on
+// each: in the Hilltop Layer of Surf Hills (3.2.0), where the game records about 28,500 draws a frame, the copies came
+// to 185 KiB on average and the game took 470,000 page faults a second.
+#define BLK_MIN_SHIFT 16
+#define BLK_CLASSES 12               // 64 KiB to 128 MiB; larger copies use the heap
+#define BLK_CACHE (256ull << 20)     // bytes kept in the cache at most
+static PlatMutex blk_lock = PLAT_MUTEX_INIT;
+static void **blk_free[BLK_CLASSES];
+static uint32_t blk_n[BLK_CLASSES], blk_cap[BLK_CLASSES];
+static uint64_t blk_cached;
+
+static int blk_class(size_t total) {   // -1: from the heap
+    if (total < (1u << BLK_MIN_SHIFT)) return -1;
+    int c = 0;
+    while (((size_t)1 << (BLK_MIN_SHIFT + c)) < total) c++;
+    return c < BLK_CLASSES ? c : -1;
+}
+
+// A block of at least total bytes; its prefix's block field holds its size, and the other fields are left to the caller.
+static copy_prefix *copy_block(size_t total) {
+    int c = blk_class(total);
+    void *p = NULL;
+    if (c >= 0) {
+        total = (size_t)1 << (BLK_MIN_SHIFT + c);
+        plat_mutex_lock(&blk_lock);
+        if (blk_n[c]) p = blk_free[c][--blk_n[c]], blk_cached -= total;
+        plat_mutex_unlock(&blk_lock);
+        if (!p) p = malloc(total);
+    } else {
+        p = malloc(total);
+    }
+    if (!p) rt_fatal("nvn: command copy allocation (%zu bytes)", total);
+    ((copy_prefix *)p)->block = total;
+    return p;
+}
+
+static void copy_block_free(copy_prefix *pf) {
+    if (!pf) return;
+    size_t size = (size_t)pf->block;
+    int c = blk_class(size);
+    if (c >= 0 && size == (size_t)1 << (BLK_MIN_SHIFT + c)) {
+        plat_mutex_lock(&blk_lock);
+        if (blk_cached + size <= BLK_CACHE) {
+            if (blk_n[c] == blk_cap[c]) {
+                uint32_t cap = blk_cap[c] ? blk_cap[c] * 2 : 16;
+                void **v = realloc(blk_free[c], sizeof *v * cap);
+                if (!v) rt_fatal("nvn: out of memory (command copy cache)");
+                blk_free[c] = v, blk_cap[c] = cap;
+            }
+            blk_free[c][blk_n[c]++] = pf, blk_cached += size;
+            pf = NULL;
+        }
+        plat_mutex_unlock(&blk_lock);
+    }
+    free(pf);
+}
+
+// The game may copy a cmd_t (see nvnCommandBufferInitialize), so two objects can hold one seg. Only the object named in
+// the cmd_t's seg_tok (its own address) writes into it or frees it; another one takes a block of its own (or copies and leaves the
+// shared one alone). Safe rather than fatal: a twin that records on is a game quirk we can serve, and the owner's
+// buffer, or the copy handed over from it, stays intact. Once handed over, the buffer belongs to the copy list: the command buffer takes a new seg.
+static uint8_t *rec_buffer(size_t cap, size_t *room) {
+    copy_prefix *b = copy_block(sizeof *b + cap);
+    b->magic = REC_MAGIC;
+    *room = (size_t)b->block - sizeof *b;
+    return (uint8_t *)(b + 1);
+}
+
+// From the object alone: a twin's seg may be freed, so the prefix is never read to decide.
+static int rec_owned(const cmd_t *o) { return SEG_OWNED(o); }
+
+static void rec_buffer_free(uint8_t *seg) {
+    if (!seg) return;
+    ((copy_prefix *)seg - 1)->magic = 0;   // a stale REC_MAGIC must not look live
+    copy_block_free((copy_prefix *)seg - 1);
+}
 typedef struct { uintptr_t lo, hi; uint8_t *copy; } cmd_copy;
 typedef struct { cmd_copy *v; uint32_t n, cap; } copy_bucket;
 static PlatMutex copy_lock = PLAT_MUTEX_INIT;    // guards the two maps, the counters and every prefix
@@ -177,7 +298,8 @@ static nvn_hmap copy_pages = {.klen = 8};   // page -> copy_bucket
 static nvn_hmap copy_live = {.klen = 8};    // handle -> copy_prefix of a live copy
 static uint64_t ncopies, copy_bytes, copies_made, nsubmits;
 // Asynchronous replay: copies released by the game, and per-submission clones, that a queued submission still reads.
-// Freed once gfx_replayed_submits() reaches their used_at. Empty with synchronous replay.
+// Freed once gfx_replayed_submits() reaches their used_at. With TOTK_CALL_REF also copies released while an OP_CALL
+// record still names them, with either replay; they are freed once no record names them (refs 0).
 static copy_prefix **zombies;
 static uint32_t nzombies, cap_zombies;
 
@@ -190,15 +312,83 @@ static void zombie_add(copy_prefix *pf) {   // copy_lock held
     zombies[nzombies++] = pf;
 }
 
+// TOTK_CALL_REF (default 1): CallCommands and CopyCommands of a recording without deferred binds or pushes record an
+// OP_CALL to its copy instead of copying its body into the caller (Hill: about 18,000 calls and 11 ms of the game's
+// main thread a frame). The replay, the WaitSync scan and the deferred-bind resolution already follow OP_CALL. The
+// called copy counts the OP_CALL records that name it (refs) and is freed only once that count is 0 and no queued
+// submission reads it; a freed copy gives its callees' counts back, and so does a recording abandoned by
+// BeginRecording or Finalize. One that cannot be read any more (a twin's buffer, Initialize over a recording command
+// buffer) keeps its counts, so its callees stay allocated; the log line counts those. A copy with deferred records is
+// still copied in, because its records are resolved in place at each submit. A copy is referenced only while its depth
+// is below CALL_REF_DEPTH and copied in beyond it, so the game's own nesting never takes a copy deeper than that: the
+// replay (vk_exec.c walk) stops past 8 levels, the WaitSync scan and the deferred-bind resolution past 16.
+#define CALL_REF_DEPTH 6
+static int call_ref(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = cfg_bool("TOTK_CALL_REF");
+        if (on) rt_log("nvn: TOTK_CALL_REF: CallCommands references recordings without deferred records");
+    }
+    return on;
+}
+int nvn_call_ref_on(void) { return call_ref(); }
+static uint64_t n_call_refs, n_call_inlined, n_call_deep, n_ref_leaks;
+
+// Adds delta to the count of every copy that an OP_CALL record in [p, end) names (a copy's records or an inlined body).
+static void calls_adjust(const uint8_t *p, const uint8_t *end, int delta) {
+    while (p < end) {
+        op_hdr h;
+        memcpy(&h, p, sizeof h);
+        if (h.size < 8) break;
+        if (h.op == OP_CALL && h.size >= 16) {
+            uint64_t t;
+            memcpy(&t, p + 8, 8);
+            __atomic_add_fetch(&((copy_prefix *)(uintptr_t)t - 1)->refs, (uint32_t)delta, __ATOMIC_RELAXED);
+        }
+        if (h.op == OP_END) break;
+        p += h.size;
+    }
+}
+
+static void copy_free(copy_prefix *pf) {   // copy_lock held; no OP_CALL record names pf any more
+    if (pf->flags & COPY_CALLS) calls_adjust((const uint8_t *)(pf + 1), (const uint8_t *)(pf + 1) + pf->bytes, -1);
+    copy_block_free(pf);
+}
+
+// Again while it freed a copy that names others: their counts may have reached 0, so a nest goes in one sweep.
 static void zombie_sweep(uint64_t replayed) {   // copy_lock held
-    for (uint32_t i = 0; i < nzombies;) {
-        if (zombies[i]->used_at <= replayed) {
-            free(zombies[i]);
-            zombies[i] = zombies[--nzombies];
-        } else {
-            i++;
+    for (int again = 1; again;) {
+        again = 0;
+        for (uint32_t i = 0; i < nzombies;) {
+            if (zombies[i]->used_at <= replayed && !__atomic_load_n(&zombies[i]->refs, __ATOMIC_RELAXED)) {
+                copy_prefix *pf = zombies[i];
+                zombies[i] = zombies[--nzombies];
+                again |= pf->flags & COPY_CALLS;
+                copy_free(pf);
+            } else {
+                i++;
+            }
         }
     }
+}
+
+// The recording o abandons gives back the counts its OP_CALL records took, when its buffer is its own to read; else
+// they stay taken (counted).
+static void drop_recording_calls(cmd_t *o) {
+    if (!call_ref() || !o->recording || !o->seg) return;
+    if (rec_owned(o)) calls_adjust(o->seg, o->cur, -1);
+    else __atomic_add_fetch(&n_ref_leaks, 1, __ATOMIC_RELAXED);
+}
+
+// For the tests: a copy's count and depth (its prefix is read as is, so a released copy must still be a zombie), and
+// the zombie list's length.
+uint32_t nvn_copy_refs(uint64_t handle) { return __atomic_load_n(&((const copy_prefix *)(uintptr_t)handle - 1)->refs, __ATOMIC_RELAXED); }
+uint32_t nvn_copy_depth(uint64_t handle) { return ((const copy_prefix *)(uintptr_t)handle - 1)->depth; }
+uint32_t nvn_copy_zombies(void) {
+    plat_mutex_lock_shared(&copy_lock);
+    uint32_t n = nzombies;
+    plat_mutex_unlock_shared(&copy_lock);
+    return n;
 }
 
 static copy_prefix *copy_find(uint64_t handle) {   // copy_lock held
@@ -232,27 +422,61 @@ static uint64_t copy_touch(uint64_t handle, uint64_t now, const char *what) {
     return bytes;
 }
 
-// The recording [p, p + n), OP_BEGIN to OP_END (the recording buffer is one block: recording emits no OP_JUMP), copied
-// into one host block of its exact size. One allocation and one copy: growing the copy record by record cost the
-// game's main thread about 1 ms a frame in reallocations and small copies (1.4.3, field).
-static uint8_t *flatten_recording(const uint8_t *p, size_t n) {
-    uint8_t *out = malloc(sizeof(copy_prefix) + n);
-    if (!out) rt_fatal("nvn: command copy allocation");
-    memcpy(out + sizeof(copy_prefix), p, n);
+// The recording [seg, cur), OP_BEGIN to OP_END (the recording buffer is one block: recording emits no OP_JUMP), checked
+// record by record, as a copy. One of RECORDING_HANDOVER bytes or more is its recording buffer itself, a copy_block
+// with the prefix in front, and the command buffer takes a block of the same size from the cache for its next
+// recording; a smaller one is copied into a block of its own, as a handed-over buffer of 64 KiB or more would stay
+// allocated for as long as the game keeps the handle. Growing the copy record by record cost the game's main thread
+// about 1 ms a frame in reallocations and small copies (1.4.3, field); copying every recording at its end took about
+// two fifths of the main thread's running time in the Hilltop Layer of Surf Hills (3.2.0, 185 KiB a copy on average).
+#define RECORDING_HANDOVER (32u << 10)
+static uint8_t *take_recording(cmd_t *o) {
+    const uint8_t *p = o->seg;
+    size_t n = (size_t)(o->cur - o->seg);
+    int calls = 0, deferred = 0, depth = 0, waits = 0;
     for (size_t at = 0;;) {   // the records stay checked: a corrupt one stops here, not in the replay
         op_hdr h;
         memcpy(&h, p + at, sizeof h);
-        if (h.size < 8 || (h.size & 7) || h.op >= OP_COUNT_ || h.op == OP_JUMP || h.op == OP_CALL || at + h.size > n ||
-            (!at && h.op != OP_BEGIN))
+        if (h.size < 8 || (h.size & 7) || h.op >= OP_COUNT_ || h.op == OP_JUMP || (h.op == OP_CALL && !call_ref()) ||
+            at + h.size > n || (!at && h.op != OP_BEGIN))
             rt_fatal("nvn: corrupt recording at %p (op %u size %u)", (const void *)(p + at), h.op, h.size);
+        if (h.op == OP_CALL && h.size >= 16) {   // the callee stays allocated: this record holds a count of it
+            uint64_t t;
+            memcpy(&t, p + at + 8, 8);
+            const copy_prefix *cp = (const copy_prefix *)(uintptr_t)t - 1;
+            int d = cp->depth + 1;
+            calls = 1, depth = d > depth ? d : depth, waits |= (cp->flags & COPY_WAITS) != 0;
+        } else if (h.op == OP_WAIT_SYNC) {
+            waits = 1;
+        } else if (h.op == OP_PUSH_CONST && h.size >= 8 + offsetof(p_push_const, w))
+            deferred |= ((const p_push_const *)(const void *)(p + at + 8))->src != 0;
+        else if ((h.op == OP_BIND_TEX || h.op == OP_BIND_IMG || h.op == OP_BIND_SAMP) &&
+                 h.size >= 8 + sizeof(p_bind_handles) - sizeof(uint64_t) * 32)
+            deferred |= ((const p_bind_handles *)(const void *)(p + at + 8))->src != 0;
         at += h.size;
         if (h.op == OP_END) {
             if (at != n) rt_fatal("nvn: recording at %p ends at %zu of %zu bytes", (const void *)p, at, n);
             break;
         }
     }
-    *(copy_prefix *)out = (copy_prefix){COPY_MAGIC, n, 0, 0};
-    return out + sizeof(copy_prefix);
+    copy_prefix *pf;
+    // Hand the buffer over only when it is the block a copy would get anyway (else a 40 KiB recording could pin the
+    // 8 MiB the buffer grew to) and this object owns it. The next buffer is sized to the same class.
+    if (n >= RECORDING_HANDOVER && rec_owned(o) &&
+        blk_class(sizeof *pf + n) == blk_class((size_t)((copy_prefix *)o->seg - 1)->block)) {
+        pf = (copy_prefix *)o->seg - 1;
+        size_t room;
+        o->seg = o->cur = rec_buffer((size_t)pf->block - sizeof *pf, &room);
+        o->end = o->seg + room;
+    } else {
+        pf = copy_block(sizeof *pf + n);
+        memcpy(pf + 1, p, n);
+    }
+    uint64_t block = pf->block;
+    // With TOTK_CALL_REF the deferred records are known from here on (inline_recording needs it before any submit).
+    *pf = (copy_prefix){COPY_MAGIC, n, 0, 0, call_ref() ? (uint64_t)(deferred ? 2 : 1) : 0, block, 0,
+                        (uint16_t)((calls ? COPY_CALLS : 0) | (waits ? COPY_WAITS : 0)), (uint16_t)depth};
+    return (uint8_t *)(pf + 1);
 }
 
 static void copy_add(uintptr_t lo, uintptr_t hi, uint8_t *copy) {
@@ -300,8 +524,8 @@ static void release_copies(uintptr_t lo, uintptr_t hi) {
             ncopies--;
             copy_bytes -= pf->bytes;
             pf->magic = 0;
-            if (pf->used_at > replayed) zombie_add(pf);   // a queued submission still reads it
-            else free(pf);
+            if (pf->used_at > replayed || __atomic_load_n(&pf->refs, __ATOMIC_RELAXED)) zombie_add(pf);   // still read
+            else copy_free(pf);
             b->v[i] = b->v[--b->n];
         }
         if (!b->n) {
@@ -324,6 +548,8 @@ NVN_API(nvnCommandBufferInitialize) {
     if (o->magic == CMD_MAGIC && o->seg && __atomic_fetch_add(&reinits, 1, __ATOMIC_RELAXED) < 8)
         rt_log("nvn: Initialize over the command buffer %p, which was not finalized; its %zu-byte recording buffer %p "
                "is dropped", (void *)o, (size_t)(o->end - o->seg), (void *)o->seg);
+    if (o->magic == CMD_MAGIC && o->recording && o->seg && call_ref())   // the bytes may be stale: counted, not read
+        __atomic_add_fetch(&n_ref_leaks, 1, __ATOMIC_RELAXED);
     memset(o, 0, sizeof *o);
     o->magic = CMD_MAGIC;
     o->dev = arg_p(c, 1);
@@ -336,8 +562,13 @@ NVN_API(nvnCommandBufferInitialize) {
 // void nvnCommandBufferFinalize(NVNcommandBuffer *cmd): handles outlive their recorder
 NVN_API(nvnCommandBufferFinalize) {
     cmd_t *o = cmd_of(c);
-    free(o->seg);
+    drop_recording_calls(o);
+    if (rec_owned(o)) {
+        seg_check(o, 0);
+        rec_buffer_free(o->seg);
+    }
     o->seg = o->cur = o->end = NULL;
+    o->seg_tok = 0;
     o->magic = 0;
     cb_set_disabled(o, CB_NO_COMMAND | CB_NO_CONTROL, 0);
     nvn_mode_trace(NVN_MODE_FINALIZE, (uintptr_t)o, 0, 0, 0);
@@ -389,9 +620,13 @@ NVN_API(nvnCommandBufferGetCommandMemoryFree) { const cmd_t *o = cmd_of(c); ret_
 // void nvnCommandBufferBeginRecording(NVNcommandBuffer *cmd)
 NVN_API(nvnCommandBufferBeginRecording) {
     cmd_t *o = cmd_of(c);
-    if (o->recording) rt_log("nvn: BeginRecording on command buffer %p while it records", (void *)o);
+    if (o->recording) {
+        rt_log("nvn: BeginRecording on command buffer %p while it records", (void *)o);
+        drop_recording_calls(o);
+    }
     o->recording = 1;
-    o->cur = o->seg;   // the previous recording was copied at EndRecording
+    if (o->seg && !rec_owned(o)) o->seg = o->cur = o->end = NULL;   // a twin's or handed-over buffer: take a block of our own
+    o->cur = o->seg;   // the previous recording was copied or handed over at EndRecording (take_recording)
     o->rec_start = o->cmd_used;
     put_hdr(cmd_alloc(o, 8), OP_BEGIN, 8);
     o->hw_used -= 8;   // BEGIN and END have no hardware equivalent
@@ -407,7 +642,7 @@ NVN_API(nvnCommandBufferEndRecording) {
     put_hdr(cmd_alloc(o, 8), OP_END, 8);
     o->hw_used -= 8;
     o->recording = 0;
-    uint8_t *copy = flatten_recording(o->seg, (size_t)(o->cur - o->seg));
+    uint8_t *copy = take_recording(o);
     // Finalizing the recorder does not retire its handle; only reusing the control memory it was recorded in does.
     uintptr_t lo = (uintptr_t)o->ctl + (o->ctl_used < o->ctl_size ? o->ctl_used : 0);
     uintptr_t hi = o->ctl ? lo + 1 : 0;
@@ -419,13 +654,59 @@ NVN_API(nvnCommandBufferEndRecording) {
 // NVNboolean nvnCommandBufferIsRecording(const NVNcommandBuffer *cmd)
 NVN_API(nvnCommandBufferIsRecording) { ret_x(c, cmd_of(c)->recording != 0); }
 
-// The called recording is copied into the caller at the call position: the game recycles command memory in small steps,
-// so a handle may be gone by the time the caller is submitted. Deferred binds stay deferred. A copy is OP_BEGIN, its
-// records and OP_END (flatten_recording checked them), so the records go over as one block; usage grows by the same
-// bytes as record by record.
+// With TOTK_CALL_REF (the default), a call to a recording without deferred records whose copy nests less than
+// CALL_REF_DEPTH deep becomes one OP_CALL naming that copy, which counts the reference and so outlives the game's
+// release of its control memory. Every other call copies the called recording into the caller at the call position:
+// the game recycles command memory in small steps, so a handle may be gone by the time the caller is submitted.
+// Deferred binds stay deferred. A copy is OP_BEGIN, its records and OP_END (take_recording checked them), so the
+// records go over as one block; usage grows by the same bytes as record by record.
 static void inline_recording(cmd_t *o, uint64_t handle, const char *what) {
     if (!handle) rt_fatal("nvn: %s with a null handle", what);
-    uint64_t bytes = copy_touch(handle, __atomic_load_n(&nsubmits, __ATOMIC_RELAXED), what);
+    uint64_t bytes;
+    if (call_ref()) {   // under the shared lock: a release cannot free the copy between the check and the count
+        plat_mutex_lock_shared(&copy_lock);
+        copy_prefix *pf = copy_find(handle);
+        if (!pf) {
+            plat_mutex_unlock_shared(&copy_lock);
+            rt_fatal("nvn: %s: command handle %#llx is not a live recording (released or never recorded)", what,
+                     (unsigned long long)handle);
+        }
+        __atomic_store_n(&pf->used_at, __atomic_load_n(&nsubmits, __ATOMIC_RELAXED), __ATOMIC_RELAXED);
+        bytes = pf->bytes;
+        const int shallow = pf->depth < CALL_REF_DEPTH;
+        const int ref = pf->deferred == 1 && bytes > 16 && o->recording && shallow;
+        if (ref) {
+            __atomic_add_fetch(&pf->refs, 1, __ATOMIC_RELAXED);
+            plat_mutex_unlock_shared(&copy_lock);
+            ((p_jump *)rec(o, OP_CALL, sizeof(p_jump)))->target = handle;
+            o->hw_used += (size_t)bytes - 16 - (8 + sizeof(p_jump));   // the game sees the usage a copy would have taken
+            o->last_rec = 0;
+            if ((__atomic_add_fetch(&n_call_refs, 1, __ATOMIC_RELAXED) & 0xfffff) == 0)
+                rt_log("nvn: TOTK_CALL_REF: %llu calls referenced, %llu copied (deferred records), %llu copied (nested %d "
+                       "deep), %llu abandoned recordings kept their counts, %u released copies still named or read",
+                       (unsigned long long)n_call_refs, (unsigned long long)__atomic_load_n(&n_call_inlined, __ATOMIC_RELAXED),
+                       (unsigned long long)__atomic_load_n(&n_call_deep, __ATOMIC_RELAXED), CALL_REF_DEPTH,
+                       (unsigned long long)__atomic_load_n(&n_ref_leaks, __ATOMIC_RELAXED), nvn_copy_zombies());
+            return;
+        }
+        __atomic_add_fetch(shallow ? &n_call_inlined : &n_call_deep, 1, __ATOMIC_RELAXED);
+        // Copied in while the lock is held, so the callees its OP_CALL records name cannot be freed before they are
+        // counted again. Records copied into a command buffer that does not record are dropped by its next
+        // BeginRecording, so they take no counts.
+        if (bytes > 16) {
+            size_t body = (size_t)bytes - 16;
+            cmd_reserve(o, body);
+            memcpy(o->cur, (const uint8_t *)(uintptr_t)handle + 8, body);
+            if ((pf->flags & COPY_CALLS) && o->recording) calls_adjust(o->cur, o->cur + body, +1);
+            o->cur += body;
+            o->cmd_used += body;
+            o->hw_used += body;
+            o->last_rec = 0;
+        }
+        plat_mutex_unlock_shared(&copy_lock);
+        return;
+    }
+    bytes = copy_touch(handle, __atomic_load_n(&nsubmits, __ATOMIC_RELAXED), what);
     if (bytes <= 16) return;
     size_t body = (size_t)bytes - 16;
     cmd_reserve(o, body);
@@ -955,7 +1236,8 @@ static uint64_t wait_target(const uint8_t *p, int depth) {
             uint64_t called;
             memcpy(&called, p + 8, 8);
             if (depth >= 16) rt_fatal("nvn: WaitSync preparation: call depth over 16");
-            value = wait_target((const uint8_t *)(uintptr_t)called, depth + 1);
+            if (((const copy_prefix *)(uintptr_t)called - 1)->flags & COPY_WAITS)
+                value = wait_target((const uint8_t *)(uintptr_t)called, depth + 1);
         } else if (h.op == OP_WAIT_SYNC) {
             if (h.size < 8 + sizeof(p_wait_sync)) rt_fatal("nvn: short WaitSync record at %p", (const void *)p);
             const sync_t *source = ((const p_wait_sync *)(const void *)(p + 8))->sync;
@@ -975,6 +1257,7 @@ static uint64_t wait_target(const uint8_t *p, int depth) {
 static void wait_submission(const uint64_t *handles, int n) {
     uint64_t target = 0;
     for (int i = 0; i < n; i++) {
+        if (!(((const copy_prefix *)(uintptr_t)handles[i] - 1)->flags & COPY_WAITS)) continue;   // no WaitSync in it
         uint64_t value = wait_target((const uint8_t *)(uintptr_t)handles[i], 0);
         if (value > target) target = value;
     }
@@ -1004,7 +1287,8 @@ static int resolve_deferred(const uint8_t *p, int depth) {   // returns the numb
             uint64_t t;
             memcpy(&t, p + 8, 8);
             if (depth >= 16) rt_fatal("nvn: deferred bind resolution: call depth over 16");
-            nd += resolve_deferred((const uint8_t *)(uintptr_t)t, depth + 1);
+            if (((const copy_prefix *)(uintptr_t)t - 1)->deferred != 1)   // a referenced copy holds none (inline_recording)
+                nd += resolve_deferred((const uint8_t *)(uintptr_t)t, depth + 1);
         } else if (h.op == OP_PUSH_CONST) {
             if (h.size < 8 + offsetof(p_push_const, w)) rt_fatal("nvn: short push-constant record at %p", (const void *)p);
             p_push_const *b = (p_push_const *)(uintptr_t)(p + 8);
@@ -1043,7 +1327,8 @@ void nvn_submit_prepare(const uint64_t *handles, int n) {
         nvn_mode_trace(NVN_MODE_HANDLE, 0, handle, (uint32_t)i, now);
     }
     wait_submission(handles, n);
-    for (int i = 0; i < n; i++) resolve_deferred((const uint8_t *)(uintptr_t)handles[i], 0);
+    for (int i = 0; i < n; i++)   // a copy known to hold no deferred record (take_recording, TOTK_CALL_REF) has none to read
+        if (((const copy_prefix *)(uintptr_t)handles[i] - 1)->deferred != 1) resolve_deferred((const uint8_t *)(uintptr_t)handles[i], 0);
 }
 
 // Asynchronous replay. A copy a queued submission still reads keeps that submission's deferred binds: when it holds
@@ -1066,10 +1351,13 @@ void nvn_submit_prepare_async(const uint64_t *handles, uint64_t *out, int n) {
         out[i] = handle;
         if (pf->used_at > replayed && pf->used_at != now && pf->deferred != 1) {
             size_t sz = sizeof *pf + pf->bytes;
-            copy_prefix *cl = malloc(sz);
-            if (!cl) rt_fatal("nvn: out of memory (recording clone, %zu bytes)", sz);
+            copy_prefix *cl = copy_block(sz);
+            uint64_t block = cl->block;
             memcpy(cl, pf, sz);
+            cl->block = block;
             cl->magic = 0;   // not a live handle: the game never sees it
+            cl->refs = 0;
+            if (cl->flags & COPY_CALLS) calls_adjust((const uint8_t *)(cl + 1), (const uint8_t *)(cl + 1) + cl->bytes, +1);
             cl->used_at = now;
             zombie_add(cl);
             out[i] = (uintptr_t)(cl + 1);
@@ -1081,8 +1369,10 @@ void nvn_submit_prepare_async(const uint64_t *handles, uint64_t *out, int n) {
     plat_mutex_unlock(&copy_lock);
     wait_submission(out, n);
     for (int i = 0; i < n; i++) {
+        copy_prefix *pf = (copy_prefix *)(uintptr_t)out[i] - 1;
+        if (pf->deferred == 1) continue;   // known to hold no deferred record: nothing to read
         int nd = resolve_deferred((const uint8_t *)(uintptr_t)out[i], 0);
-        if (out[i] == handles[i]) ((copy_prefix *)(uintptr_t)out[i] - 1)->deferred = nd ? 2 : 1;
+        if (out[i] == handles[i]) pf->deferred = nd ? 2 : 1;
     }
     if (now % 7200 == 0)
         rt_log("nvn: asynchronous replay at submit %llu: %llu recording clones so far, %u copies waiting for the replay",

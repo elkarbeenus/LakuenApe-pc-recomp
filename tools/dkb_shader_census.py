@@ -28,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+import romfs_index
+
 try:
     import compression.zstd as _zstd
 
@@ -233,7 +235,7 @@ def main():
     if index.get('status') != 'pass':
         sys.exit('RomFS has not passed integrity verification')
     found, errors, t0 = {}, collections.Counter(), time.time()
-    with (romfs / 'romfs.bin').open('rb') as stream:
+    with romfs_index.open_image(romfs, index) as stream:
         for row in index['files']:
             if row['size'] > MAX_FILE or not (args.all or row['path'].startswith(SHADER_DIRS)):
                 continue
@@ -245,6 +247,8 @@ def main():
                 walk(raw, row['path'], found, errors)
             except (ValueError, struct.error, OSError, _zstd.ZstdError) as e:
                 errors[type(e).__name__ + ': ' + str(e)[:50]] += 1
+    if not found:
+        sys.exit(f'found 0 shader stages in {romfs}; the RomFS folder is probably an image, not extracted files, so no seed pack was written')
     out.mkdir(parents=True, exist_ok=True)
     pad = lambda b: b + bytes(-len(b) % 4)
     by_stage = collections.Counter(v[0] for v in found.values())

@@ -9,6 +9,8 @@
 //     --probe-nvn, --probe-nvn-tex, --probe-window, --probe-shader, --probe-vkmem, --probe-vkexec    graphics probes
 //     --probe-astc      the compute ASTC decoder against astc_decode_ldr; needs no game files
 //     --probe-movie     host VP9 movie::Decoder on one RomFS movie; skips without game data
+//     --probe-splash    the start-up screen drawn in a set of states and window sizes into PNGs (DKB_SPLASH_SHOTS
+//                       names the folder, splash-probe by default); needs a Vulkan device, no game files
 //     --probe-aoc       mount the add-on content next to the exe and read it back; DKB_AOC_SOURCE=<romfs folder> also
 //                       compares the bytes with the folder the pack was made from
 //     --boot            run the game to the first NVN call
@@ -31,6 +33,8 @@
 #include "host.h"
 #include "platform/platform.h"
 #include "sha256.h"
+#include "splash.h"
+#include "vk_driver_env.h"
 
 #define MAX_MODULES 16
 
@@ -224,10 +228,19 @@ static uint64_t lifted_function(uintptr_t rip) {
 
 static void crash_handler(const PlatCrash *x) {
     static volatile int32_t busy;
-    if (plat_xchg32(&busy, 1)) plat_exit(71);
+    if (plat_xchg32(&busy, 1)) {   // a fault while the report is made: no report, but still a dump
+        plat_crash_dump();
+        plat_exit(71);
+    }
+    // A stack overflow leaves too little stack for the report (rt_vlogf alone takes 2 KB): dump first there, from the
+    // dump's own thread, while the report may still die.
+    const char *dump = x->code == 0xc00000fdu ? plat_crash_dump() : NULL;
     char d[160];
     uintptr_t rip = x->rip;
-    rt_logf("FATAL: %s (%#x) at host %p (totk+%#llx)", x->what, x->code, (void *)rip, (unsigned long long)x->offset);
+    // x->module names the DLL of a fault outside this executable (the last-chance filter: a driver, a Vulkan layer);
+    // its offset is then into that module, and the lifted-function lookup below finds nothing.
+    rt_logf("FATAL: %s (%#x) at host %p (%s+%#llx)", x->what, x->code, (void *)rip, x->module ? x->module : "totk",
+            (unsigned long long)x->offset);
     if (x->access >= 0)
         rt_logf(", %s address %#llx", x->access == 1 ? "writing" : x->access == 8 ? "executing" : "reading",
                 (unsigned long long)x->addr);
@@ -238,7 +251,7 @@ static void crash_handler(const PlatCrash *x) {
     if (lazy_err)
         rt_logf("  lazy heap commit failed: error %u at %#llx, commit limit reached?\n", lazy_err, (unsigned long long)lazy_at);
 #endif
-    uint64_t f = lifted_function(rip);
+    uint64_t f = x->module ? 0 : lifted_function(rip);
     if (f) rt_logf("  in lifted function f_%llx = %s\n", (unsigned long long)f, ldr_describe(f, d, sizeof d));
     for (int i = 0; i < x->nframes; i++) {   // abort and invalid parameter: where the host code called it
         uint64_t g = lifted_function(x->frames[i]);
@@ -250,6 +263,14 @@ static void crash_handler(const PlatCrash *x) {
     if (c) rt_guest_dump(c);
     else rt_logf("  not on a guest thread\n");
     fflush(stderr);
+    // The dump comes last: it suspends the other threads and can hang on a lock one of them holds, and by now the
+    // report is in the log. It holds game-derived memory (thread stacks): the line says so, since players copy this
+    // log into issues.
+    if (!dump) dump = plat_crash_dump();
+    if (dump) {
+        rt_logf("  minidump: %s (keep it on this PC: send it only privately, when asked for)\n", dump);
+        fflush(stderr);
+    }
     plat_exit(71);
 }
 
@@ -268,9 +289,16 @@ static void check_cpu(void) {
     printf("cpu: AArch64 (portable FP/SIMD lowering)\n");
 #else
     __builtin_cpu_init();
+#if defined(__AVX2__)
     int ok = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") && __builtin_cpu_supports("bmi2");
-    printf("cpu: x86-64-v3 (AVX2, FMA, BMI2) %s\n", ok ? "present" : "MISSING");
-    CHECK(ok, "the lifted code is built for x86-64-v3");
+    const char *level = "x86-64-v3 (AVX2, FMA, BMI2)";
+#else
+    // A --march v2 build (tools/build_game.py) needs only SSE4.2 and POPCNT, as require_cpu checks at start (#318)
+    int ok = __builtin_cpu_supports("sse4.2") && __builtin_cpu_supports("popcnt");
+    const char *level = "x86-64-v2 (SSE4.2, POPCNT)";
+#endif
+    printf("cpu: %s %s\n", level, ok ? "present" : "MISSING");
+    CHECK(ok, "the lifted code is built for %s", level);
 #endif
 }
 
@@ -449,6 +477,7 @@ static int selftest(void) {
     CHECK(mem_kernel_alloc(0x200, 16) == k1, "a freed kernel-region block is not reused");
     check_memory();
     CHECK(!vk_backend_selftest(), "the replay write-back deduplication");
+    CHECK(!splash_selftest(), "the start-up screen's estimate, texts and test sequence");
 
     float used, total, proc;
     plat_mem_info(&used, &total, &proc);
@@ -462,7 +491,7 @@ static int usage(const char *argv0) {
     fprintf(stderr, "usage: %s [--exefs DIR] [--romfs DIR] [--profile DIR] [--selftest | --probe-loader | "
                     "--probe-cfg | --probe-dpi | --probe-kernel | --probe-ipc | --probe-ipc-lifetime | --probe-services | --probe-fs | --probe-gfx-abi | "
                     "--probe-nvn | --probe-nvn-tex | --probe-window | --probe-shader | --probe-shader-geometry | --probe-vkmem | "
-                    "--probe-vkexec | --probe-vkgeometry | --probe-vkgeometry-passthrough | --probe-vkgeometry-passthrough-ordering | --probe-vkclear | --probe-vkcopy-astc | --probe-vkpool | --probe-vkreset | --probe-astc | --probe-movie | --probe-aoc | --prepare-shaders | --translate-shaders | --warm-shaders | --boot |--seconds S [--shot PNG]]\n", argv0);
+                    "--probe-vkexec | --probe-vkgeometry | --probe-vkgeometry-passthrough | --probe-vkgeometry-passthrough-ordering | --probe-vkclear | --probe-vkcopy-astc | --probe-vkpool | --probe-vkreset | --probe-astc | --probe-movie | --probe-splash | --probe-aoc | --prepare-shaders | --translate-shaders | --warm-shaders | --boot |--seconds S [--shot PNG]]\n", argv0);
     return 2;
 }
 
@@ -498,11 +527,37 @@ static void portable_paths(RtConfig *c) {
     c->profile = portable_path(exe, "TOTK_PROFILE_DIR", "profile", NULL, pp_profile, sizeof pp_profile, c->profile);
 }
 
+// The lifted code is built for the x86-64 level tools/build_game.py chose; on a CPU below it the first AVX2 or FMA
+// instruction would fault, so say so and stop.
+static void require_cpu(void) {
+#if defined(__x86_64__)
+    __builtin_cpu_init();
+#if defined(__AVX2__)
+    int ok = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") && __builtin_cpu_supports("bmi2");
+    const char *level = "x86-64-v3 (AVX2, FMA, BMI2)", *hint = "Rebuild with --march v2 (the setup does this on its own).";
+#else
+    int ok = __builtin_cpu_supports("sse4.2") && __builtin_cpu_supports("popcnt");
+    const char *level = "x86-64-v2 (SSE4.2)", *hint = "This CPU is too old for the game.";
+#endif
+    if (!ok) {
+        fprintf(stderr, "This build needs a CPU with %s, which this one lacks. %s\n", level, hint);
+        exit(1);
+    }
+#endif
+}
+
 int main(int argc, char **argv) {
+    require_cpu();
     mem_init();   // first: claim the guest address space before anything else can land there; reads totk.ini
+    // Right after the settings can be read and before anything loads or calls the Vulkan loader (SDL's video init,
+    // vk_init): the loader reads VK_DRIVER_FILES when it first lists the drivers.
+    vk_driver_env_apply();
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     plat_crash_hook(crash_handler);
+    // Build the host-to-guest function table now, not in the crash handler: its malloc there faults again after heap
+    // damage, and the report then stops before the lifted function and the guest frames (#148).
+    lifted_function(0);
     parse_trace();
     prof_start();
     // Timed guest waits (kernel.c block_inner) sleep in whole milliseconds; at the default 15.6 ms tick a 1 ms wait
@@ -547,6 +602,11 @@ int main(int argc, char **argv) {
     if (cfg.seconds && mode) return usage(argv[0]);
     log_open(!mode);
     if (!mode) {
+        // console = 0: a frontend that starts the game gets no console window in front of the game's (#238).
+        if (!cfg_bool("TOTK_CONSOLE")) {
+            const char *why = plat_console_hide();
+            if (why) rt_log("console: left as is: %s", why);   // tells #364-style reports which case they hit
+        }
         cfg.boot = cfg.seconds > 0;   // --seconds starts the game like --boot, with its checkpoints
         rt_boot();
         return 0;
@@ -580,6 +640,7 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "--probe-astc")) return probe_astc();
     if (!strcmp(mode, "--probe-vkdevice")) return probe_vkdevice();
     if (!strcmp(mode, "--probe-movie")) return probe_movie();
+    if (!strcmp(mode, "--probe-splash")) return probe_splash();
     if (!strcmp(mode, "--probe-aoc")) return probe_aoc();
     if (!strcmp(mode, "--prepare-shaders")) return gfx_shader_tool(GFX_TOOL_PREPARE_SHADERS);
     if (!strcmp(mode, "--translate-shaders")) return gfx_shader_tool(GFX_TOOL_TRANSLATE_SHADERS);

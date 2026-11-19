@@ -43,6 +43,7 @@ PRELUDE = r'''
 #define DEV_MAGIC MAGIC('D', 'E', 'V', 0)
 #define AGEN_N 4096
 #define RGEN_N 4096
+#define CHK_N 4096
 unsigned rt_trace;
 const char rt_game_target[] = "dkb458752";
 // Every TOTK_* switch reads as off, its default.
@@ -59,6 +60,11 @@ void plat_mutex_lock(PlatMutex *m) { if (m->p) rt_fatal("nonrecursive lock reent
 void plat_mutex_unlock(PlatMutex *m) { if (!m->p) rt_fatal("unlock without lock\n"); m->p = NULL; }
 void plat_mutex_lock_shared(PlatMutex *m) { plat_mutex_lock(m); }
 void plat_mutex_unlock_shared(PlatMutex *m) { plat_mutex_unlock(m); }
+int plat_mutex_trylock(PlatMutex *m) { if (m->p) return 0; m->p = (void *)1; return 1; }
+int plat_mutex_trylock_shared(PlatMutex *m) { return plat_mutex_trylock(m); }
+uint64_t kern_now_ns(void) { return 0; }
+void perf_lock_wait(int lock, uint64_t ns) { (void)lock; (void)ns; }
+const char *cfg_get(const char *key) { (void)key; return NULL; }   // TOTK_LOCK_HOLDS: off
 void plat_cond_broadcast(PlatCond *c) { (void)c; }
 void plat_cond_wait(PlatCond *c, PlatMutex *m) { (void)c; (void)m; rt_fatal("unexpected fixture wait\n"); }
 '''
@@ -258,21 +264,26 @@ def source():
     for text, names in ((tex, ('static PlatRMutex tex_lock', 'static PlatOnce tex_once', 'static nvn_hmap by_key',
             'static nvn_hmap by_addr', 'static nvn_hmap descriptors', 'enum { DESC_BUCKET_SHIFT',
             'static nvn_hmap desc_buckets', 'static uint32_t slots_gen',
-            'static uint32_t samp_gen', 'static uint32_t reg_serial', 'static uint32_t agen[AGEN_N]', 'static uint32_t rgen[RGEN_N]',
-            'static uint32_t submit_epoch', 'static volatile int32_t tex_ready')),
+            'static uint32_t samp_gen', 'static uint32_t reg_serial', 'static uint32_t agen[AGEN_N]', 'static uint32_t rgen[RGEN_N]', 'static uint64_t chk[CHK_N]',
+            'static uint32_t submit_epoch', 'static volatile int32_t tex_ready', 'static int tex_frozen')),
             (memory, ('static PlatMutex pool_lock', 'static pidx pool_index')),
             (common, ('static PlatMutex once_lock', 'static PlatCond once_done'))):
         parts += [statement(text, name) for name in names]
     parts += [r'''
 static Tex *entry_of(const tex_t *t) { (void)t; dependencies++; rt_fatal("unexpected image creation\n"); }
 static int make_fresh_snap(Tex *t) { (void)t; dependencies++; rt_fatal("unexpected upload\n"); }
+void plat_yield(void) {}   // lock_unfrozen: no pass end is held back here, so never reached
 ''']
-    for text, starts in ((common, ('void plat_rmutex_lock(', 'void plat_rmutex_unlock(', 'void plat_once(')),
+    parts += ['#define HOLD_SITES 16\n#define lock() lock_at(0)', typedef(tex, 'HoldSite')] + [statement(tex, name) for name in (
+        'static int holds_on', 'static _Thread_local uint64_t hold_t0', 'static _Thread_local void *hold_ra',
+        'static PlatMutex holds_lock', 'static HoldSite holds')]
+    for text, starts in ((common, ('void plat_rmutex_lock(', 'int plat_rmutex_trylock(', 'void plat_rmutex_unlock(', 'uint32_t plat_rmutex_release(', 'void plat_rmutex_retake(', 'void plat_once(')),
             (core, ('void nvn_called(',)),
-            (tex, ('static void tex_init(', 'static void lock(', 'static void unlock(', 'static void log_limited(',
+            (tex, ('static void tex_init(', 'static void hold_note(', 'static void lock_at(', 'static void unlock(', 'static void lock_unfrozen(',
+                'static void log_limited(',
                 'static uint32_t agen_idx(', 'static void make_key(', 'static int same_but_swizzle(',
-                'static uint32_t rgen_idx(', 'static void rgen_bump(')),
-            (memory, ('int vk_mem_descriptor_key(',)),
+                'static uint32_t rgen_idx(', 'static void rgen_bump(', 'static uint32_t chk_idx(')),
+            (memory, ('static void pool_lock_shared(', 'int vk_mem_descriptor_key(',)),
             (tex, ('static uint64_t desc_bucket_id(', 'static void desc_bucket_add(', 'static void desc_bucket_del(',
                 'static int descriptor_key(', 'static DescSlot *descriptor_slot(', 'static void descriptor_registered(',
                 'void vk_texture_register(', 'static Tex *slot_resolve(', 'uint64_t vk_texture_slot_token(', 'uint64_t vk_texture_slot_token_stamped(',

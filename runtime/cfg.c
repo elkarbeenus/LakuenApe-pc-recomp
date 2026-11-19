@@ -30,66 +30,66 @@ static int save_ok = 1;                         // the last cfg_save_to wrote (o
 // Every name the runtime reads (and the patch sets in generated/), without the prefix. A file key outside this list is
 // logged as unknown. A new variable goes here too, or its ini key logs a harmless "unknown key" line.
 static const char *const known[] = {
-    "AB", "APP_POOL", "ASPECT", "ASPECT_PATCH", "ASSUME_FOCUS", "ASTC", "ASTC_BC", "ASTC_TIME", "ASYNC_PREEMPT", "AUDIO", "AUDIO_CHANNELS", "AUDIO_OFF", "AUDIO_PREFILL_MS",
+    "AB", "ANTILAG", "APP_POOL", "ASPECT", "ASPECT_PATCH", "ASSUME_FOCUS", "ASTC", "ASTC_BC", "ASTC_BC1", "ASTC_TIME", "ASYNC_PREEMPT", "AUDIO", "AUDIO_CHANNELS", "AUDIO_OFF", "AUDIO_PREFILL_MS",
     "BACKGROUND_WINDOW", "BIND_A", "BIND_B", "BIND_DOWN", "BIND_L", "BIND_LCLICK", "BIND_LEFT", "BIND_LSTICK_DOWN", "BIND_LSTICK_LEFT",
     "BIND_LSTICK_RIGHT", "BIND_LSTICK_UP", "BIND_MINUS",
     "BIND_PLUS", "BIND_R", "BIND_RCLICK", "BIND_RIGHT", "BIND_RSTICK_DOWN", "BIND_RSTICK_LEFT", "BIND_RSTICK_RIGHT", "BIND_RSTICK_UP",
     "BIND_SKIP", "BIND_STATS", "BIND_UP", "BIND_X", "BIND_Y",
-    "BIND_ZL", "BIND_ZR", "BLOCK_VIEWS_3D", "CLOTH_REALTIME", "COLOR_BRIGHTNESS", "COLOR_CONTRAST", "COLOR_GAMMA", "COLOR_PRESET", "COLOR_SATURATION", "CORE_DIAG", "CRIT", "CRUMB_BIND", "CRIT_OUT", "DESC_C0_SERIAL", "DESC_KEEP", "DESC_SAMP_GEN", "DESC_STAGE_ORIGIN", "DESC_TD_HASH", "DESC_TEMPLATE", "DEVICE_PROFILE", "DRAW_PROFILE", "DUMP", "DUMP_BUF", "DUMP_DIR", "DUMP_LOG", "DYN_UBO",
-    "EXEFS", "EXPERIMENTAL_GEOMETRY", "FEEDBACK", "FIXED_STEP", "FIX_C0", "FIX_INDIRECT_RESET", "FIX_SCREEN_UV", "FIX_VS_FAULT", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES", "FLIGHT_SPIKE_MS",
-    "FLIGHT_THUMBS", "FMZ", "FMZ_SEL", "FOV", "FOV_PATCH", "FPS60", "FPS_LIMIT", "FRAME_GEN", "FREEZE_IDLE", "FREE_CORES", "FULLSCREEN", "GPL", "GPL_DRAW_BUILD", "GPU", "GPU_CHECKPOINTS",
-    "GPU_INDEX", "GPU_NAME", "HDR", "HDR_GAME_NITS", "HDR_NATIVE", "HDR_PEAK_NITS", "HDR_SHOULDER", "HDR_TRACE", "HDR_UI_NITS", "HEAP_LAZY", "HIGHFPS_FIX", "HOST_PROPS_CACHE", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "LANG", "LIB_PREBUILD",
-    "LIB_PREBUILD_KEEP", "LIB_PREBUILD_THREADS", "LIST_RESTART", "LOCALE", "LOD_GUARD", "MEMORY", "MEM_REPORT", "MENU_LANG", "MENU_THEME", "MENU_TEST",
-    "MENU_TEST_DIR", "MENU_TEST_SET", "MINIMAL_LAYOUT", "MIRROR_GAP", "MOTION", "MOUSE_CAMERA", "MOUSE_SENS", "MOVIE_HOST", "MOVIE_PACE", "MVK_UPSCALE_BLIT", "NAN_GUARD", "NATIVE_GS", "NX2_READ_NOWAIT",
-    "NVN2_MODE_TRACE", "NVN2_MODE_TRACE_START_MS", "NVN2_MODE_TRACE_DURATION_MS", "ONE_PER_CORE", "OPERATION_MODE", "OUTPUT_RES", "PAD_LAYOUT", "PATCH_OUTPUT", "PATCH_SCENE", "PERF_OVERLAY", "PERF_SLOW_GPU_MS", "PERF_SLOW_MS", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT", "POOL_FINI_WAIT", "POOL_LAZY",
+    "BIND_ZL", "BIND_ZR", "BLOCK_VIEWS_3D", "CLOTH_REALTIME", "COLOR_BRIGHTNESS", "COLOR_CONTRAST", "COLOR_GAMMA", "COLOR_PRESET", "COLOR_SATURATION", "CORE_DIAG", "CRIT", "CRUMB_BIND", "CRIT_OUT", "CRT_FILTER", "CRT_LINES", "DESC_C0_SERIAL", "DESC_KEEP", "DESC_SAMP_GEN", "DESC_STAGE_ORIGIN", "DESC_TD_HASH", "DESC_TEMPLATE", "DEVICE_PROFILE", "DLSS_PRESET", "DLSS_WARM_FULL", "DRAW_MERGE", "DRAW_PROFILE", "DUMP", "DUMP_BUF", "DUMP_DIR", "DUMP_LOG", "DYN_KEEP", "DYN_UBO",
+    "EXEFS", "EXPERIMENTAL_GEOMETRY", "FEEDBACK", "FIXED_STEP", "FIX_C0", "FIX_INDIRECT_RESET", "FIX_LQ_FOLD", "FIX_SCREEN_UV", "FIX_VS_FAULT", "FIX_ZERO", "FLIGHT", "FLIGHT_AT", "FLIGHT_DIR", "FLIGHT_FRAMES", "FLIGHT_SPIKE_MS",
+    "FLIGHT_THUMBS", "CONSOLE", "COOP", "FMZ", "FMZ_SEL", "FOV", "FOV_PATCH", "FPS60", "FPS_LIMIT", "FRAME_GEN", "FRAME_GEN_BY", "FREEZE_IDLE", "FRZ_WHOLE", "FSR4_LDR", "FSR_DIR", "FREE_CORES", "FULLSCREEN", "GPL", "GPL_DRAW_BUILD", "GPU", "GPU_CHECKPOINTS", "GPU_HANG_S",
+    "GPU_INDEX", "GPU_NAME", "GS_STORAGE_WRITEBACK", "HDR", "HDR_GAME_NITS", "HDR_NATIVE", "HDR_PEAK_NITS", "HDR_SHOULDER", "HDR_TRACE", "HDR_UI_NITS", "HEAP_LAZY", "HIGHFPS_FIX", "HOST_PROPS_CACHE", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "LANG", "LIB_PREBUILD",
+    "LIB_PREBUILD_KEEP", "LIB_PREBUILD_THREADS", "LIST_RESTART", "LOCALE", "LOCK_HOLDS", "LOD_GUARD", "LOOKAHEAD", "MEMORY", "MEM_AVAIL_RESERVE_MB", "MEM_COMMIT_RESERVE_MB", "MEM_REPORT", "MEM_TRIM", "MENU_LANG", "MENU_THEME", "MENU_TEST",
+    "MENU_TEST_DIR", "MENU_TEST_SET", "MERGE_STATS", "MINIMAL_LAYOUT", "MIRROR_GAP", "MIRROR_OWN", "MIRROR_PRESNAP", "MIRROR_STAGED", "MOTION", "MOUSE_CAMERA", "MOUSE_SENS", "MOVIE_HOST", "MOVIE_PACE", "MVK_UPSCALE_BLIT", "NAN_GUARD", "NATIVE_GS", "NX2_READ_NOWAIT",
+    "NVN2_MODE_TRACE", "NVN2_MODE_TRACE_START_MS", "NVN2_MODE_TRACE_DURATION_MS", "ONE_PER_CORE", "OPERATION_MODE", "OUTPUT_RES", "PAD_DEVICE", "PAD_FULLSCREEN_HOLD", "PAD_LAYOUT", "PAD_PROMPTS", "PAR_DEFER", "PAR_DEFER_DEPTH", "PAR_INDIRECT", "PASS_GPU", "PATCH_OUTPUT", "PATCH_SCENE", "PCACHE_GATE", "PERF_OVERLAY", "PERF_SLOW_GPU_MS", "PERF_SLOW_MS", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT", "POOL_FINI_WAIT", "POOL_IMPORT_LOG", "POOL_LAZY",
     "PRESENT_HOLD", "PREWARM_XLATE", "PROBE_MOVIE", "PROBE_MOVIE_SHOT", "PROFILE", "PROFILE_CHAINS", "PROFILE_DIR", "PROFILE_FRAMES",
-    "PROFILE_MAIN", "PROFILE_RENDER", "PROFILE_REPLAY", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REALTIME", "REC_BEGIN", "REC_END", "REC_SUBMIT", "REEXEC",
-    "RENDER_SCALE", "SCENE_RES", "REPLAY_ASYNC", "REPLAY_HELPERS", "REPLAY_PAR", "REPLAY_THREADS",
-    "REPLAY_CHECK", "RESOLVE_CHECK", "ROMFS", "ROMFS_INDEX", "ROMFS_MMAP", "ROMFS_MODS", "ROMFS_PATCHES",
-    "ROMFS_PROOF_DIR", "ROMFS_VERIFY", "RUMBLE", "RUMBLE_CURVE", "RUMBLE_STRENGTH", "RUMBLE_TRIGGERS", "SHADER_CACHE",
-    "SHADER_MEMO", "SHARED_FONTS", "SHARPNESS", "SHOTS", "SHOTS_DIR", "SHOTS_FULL", "SKIP_FS", "SKIP_VS", "SMAA", "SPARSE_MIRROR_COPY", "SPEED_PROBE", "SPIN", "SPIN_HANDOFF_US", "SPLIT_DRAWS", "SPLIT_US", "STICK_DEADZONE", "SVC_SLOW", "SWKBD_ANSWER",
-    "SWKBD_TEST", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_HASH", "TEX_MEMO", "TEX_REPEAT", "TEX_VRAM_PRESSURE", "TIMER_1MS", "REC_BATCH", "TRACE", "UBO_SNAPSHOT", "UPSCALER", "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
-    "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VRAM_HEADROOM", "VS_OUTS",
-    "ULTRAWIDE", "HUD_POSITION", "WB_ASYNC", "WB_EXACT", "WB_FENCE_LIMIT", "WINDOW_MODE", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PROCS", "ZSTD_CHECK", "ZSTD_NATIVE",
+    "PROFILE_MAIN", "PROFILE_RENDER", "PROFILE_REPLAY", "PROFILE_SLOW", "PROFILE_VQ", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REALTIME", "REALTIME_MAX_FPS", "REC_BEGIN", "REC_END", "REC_SUBMIT", "REEXEC",
+    "RENDER_SCALE", "SCENE_RES", "REPLAY_ASYNC", "REPLAY_HELPERS", "REPLAY_PAR", "REPLAY_THREADS", "CALL_REF", "RESET_BATCH", "RESET_CPU_LIST",
+    "REPLAY_CHECK", "RESOLVE_CHECK", "ROMFS", "ROMFS_DIR", "ROMFS_INDEX", "ROMFS_MMAP", "ROMFS_MODS", "ROMFS_PATCHES",
+    "ROMFS_PROOF_DIR", "ROMFS_VERIFY", "RUMBLE", "RUMBLE_CURVE", "RUMBLE_HD", "RUMBLE_STRENGTH", "RUMBLE_TRIGGERS", "SHADER_CACHE",
+    "SHADER_MEMO", "SHARED_FONTS", "SHARPNESS", "SHOTS", "SHOTS_DIR", "SHOTS_FULL", "SKIP_CS", "SKIP_FS", "SKIP_VS", "SMAA", "SPARSE_MIRROR_COPY", "SPEED_PROBE", "STALL_DUMP", "SPIN", "SPIN_HANDOFF_US", "SPLASH", "SPLASH_SHOTS", "SPLASH_TEST", "SPLASH_WATCH", "SPLIT_DRAWS", "SPLIT_US", "STAGED_BLK_CHECK", "STAGED_FETCH_TEST", "STAGED_INJECT", "STAGED_READ_PROBE", "STAGED_WB", "STAMP_BATCH", "STICK_DEADZONE", "SVC_SLOW", "SWITCH2", "SWKBD_ANSWER",
+    "SWKBD_TEST", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_CHECK_SHARE", "TEX_HASH", "TEX_MEMO", "TEX_REPEAT", "CS_BARRIER", "TEX_VRAM_PRESSURE", "TIMER_1MS", "TOUCH_MAP", "REC_BATCH", "TRACE", "UBO_SNAPSHOT", "UPSCALER", "USNAP_DROP_LOCAL", "USNAP_FAST", "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
+    "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VULKAN_DRIVER", "VRAM_HEADROOM", "VRAM_LIMIT", "VS_OUTS",
+    "ULTRAWIDE", "HUD_POSITION", "WB_ASYNC", "WB_EARLY", "WB_EXACT", "WB_FENCE_LIMIT", "WB_LAZY", "WB_UNLOCKED", "WINDOW_FILTER", "WINDOW_MODE", "WINDOW_SIZE", "WW_SLOW_MS", "XLATE", "XLATE_ID", "XLATE_PROCS", "ZSTD_CHECK", "ZSTD_NATIVE",
 };
 
 // The totk.ini section a key cfg_set may write goes to when the file lacks it (totk.ini.example's sections).
 static const struct { const char *key, *section; } sections[] = {
     {"FPS_LIMIT", "frame rate"}, {"FPS60", "frame rate"},
-    {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
-    {"FULLSCREEN", "display"}, {"WINDOW_MODE", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
-    {"GPU_INDEX", "display"}, {"OUTPUT_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"}, {"SCENE_RES", "display"},
+    {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"ANTILAG", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
+    {"FULLSCREEN", "display"}, {"CONSOLE", "display"}, {"WINDOW_MODE", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
+    {"GPU_INDEX", "display"}, {"VULKAN_DRIVER", "display"}, {"OUTPUT_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"}, {"WINDOW_FILTER", "display"}, {"DLSS_PRESET", "display"}, {"FSR_DIR", "display"}, {"FSR4_LDR", "display"}, {"SCENE_RES", "display"},
     {"ULTRAWIDE", "display"}, {"HUD_POSITION", "display"},
-    {"SHARPNESS", "display"}, {"SMAA", "display"}, {"FRAME_GEN", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
+    {"SHARPNESS", "display"}, {"SMAA", "display"}, {"CRT_FILTER", "display"}, {"CRT_LINES", "display"}, {"FRAME_GEN", "display"}, {"FRAME_GEN_BY", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
     {"HDR_UI_NITS", "display"}, {"HDR_NATIVE", "display"},
-    {"DEVICE_PROFILE", "display"}, {"ASSUME_FOCUS", "display"},
+    {"DEVICE_PROFILE", "display"}, {"ASSUME_FOCUS", "display"}, {"SPLASH", "display"},
     {"MENU_THEME", "menu"}, {"MENU_LANG", "language"}, {"LANG", "language"}, {"OPERATION_MODE", "language"},
     {"VOLUME", "audio"}, {"AUDIO_CHANNELS", "audio"},
-    {"MOTION", "input"}, {"RUMBLE_STRENGTH", "input"}, {"RUMBLE_CURVE", "input"}, {"RUMBLE_TRIGGERS", "input"},
-    {"PAD_LAYOUT", "input"}, {"STICK_DEADZONE", "input"}, {"MOUSE_CAMERA", "input"}, {"MOUSE_SENS", "input"}, {"INPUT_RECORD", "input"},
+    {"MOTION", "input"}, {"RUMBLE_STRENGTH", "input"}, {"RUMBLE_CURVE", "input"}, {"RUMBLE_TRIGGERS", "input"}, {"RUMBLE_HD", "input"}, {"SWITCH2", "input"}, {"COOP", "input"},
+    {"PAD_DEVICE", "input"}, {"PAD_FULLSCREEN_HOLD", "input"}, {"PAD_LAYOUT", "input"}, {"PAD_PROMPTS", "input"}, {"STICK_DEADZONE", "input"}, {"MOUSE_CAMERA", "input"}, {"MOUSE_SENS", "input"}, {"INPUT_RECORD", "input"},
     {"BIND_A", "input"}, {"BIND_B", "input"}, {"BIND_X", "input"}, {"BIND_Y", "input"}, {"BIND_LCLICK", "input"},
     {"BIND_RCLICK", "input"}, {"BIND_L", "input"}, {"BIND_R", "input"}, {"BIND_ZL", "input"}, {"BIND_ZR", "input"},
     {"BIND_PLUS", "input"}, {"BIND_MINUS", "input"}, {"BIND_LEFT", "input"}, {"BIND_UP", "input"},
     {"BIND_RIGHT", "input"}, {"BIND_DOWN", "input"}, {"BIND_LSTICK_LEFT", "input"}, {"BIND_LSTICK_UP", "input"},
     {"BIND_LSTICK_RIGHT", "input"}, {"BIND_LSTICK_DOWN", "input"}, {"BIND_RSTICK_LEFT", "input"},
     {"BIND_RSTICK_UP", "input"}, {"BIND_RSTICK_RIGHT", "input"}, {"BIND_RSTICK_DOWN", "input"},
-    {"ASYNC_PREEMPT", "performance"}, {"REPLAY_ASYNC", "performance"}, {"REPLAY_THREADS", "performance"}, {"FREE_CORES", "performance"},
+    {"ASYNC_PREEMPT", "performance"}, {"REPLAY_ASYNC", "performance"}, {"REPLAY_THREADS", "performance"}, {"CALL_REF", "performance"}, {"RESET_CPU_LIST", "performance"}, {"FREE_CORES", "performance"},
     {"TIMER_1MS", "performance"}, {"PIPE_WAIT", "performance"}, {"PIPE_SKIP", "performance"},
     {"LIB_PREBUILD", "performance"}, {"LIB_PREBUILD_THREADS", "performance"}, {"PIPE_PREBUILD", "performance"},
-    {"PREWARM_XLATE", "performance"}, {"GPL", "performance"}, {"ASTC", "performance"}, {"MEMORY", "performance"},
+    {"PREWARM_XLATE", "performance"}, {"GPL", "performance"}, {"ASTC", "performance"}, {"MEMORY", "performance"}, {"WB_LAZY", "performance"},
     {"EXPERIMENTAL_GEOMETRY", "performance"}, {"NATIVE_GS", "performance"},
     {"REC_BATCH", "performance"},
-    {"TEX_ALIAS", "performance"}, {"TEX_VRAM_PRESSURE", "performance"}, {"ASTC_BC", "performance"}, {"LOD_GUARD", "performance"}, {"FIX_C0", "performance"}, {"FIX_INDIRECT_RESET", "performance"}, {"FIX_VS_FAULT", "performance"}, {"FIX_ZERO", "performance"}, {"FIX_SCREEN_UV", "performance"}, {"LIST_RESTART", "performance"},
-    {"BIND_SKIP", "performance"}, {"SHADER_MEMO", "performance"}, {"PIPE_MEMO", "performance"}, {"TEX_MEMO", "performance"}, {"DESC_KEEP", "performance"}, {"DESC_TEMPLATE", "performance"},
-    {"DESC_C0_SERIAL", "performance"}, {"DESC_SAMP_GEN", "performance"}, {"DESC_TD_HASH", "performance"}, {"DESC_STAGE_ORIGIN", "performance"}, {"TEX_REPEAT", "performance"},
+    {"TEX_ALIAS", "performance"}, {"TEX_VRAM_PRESSURE", "performance"}, {"ASTC_BC", "performance"}, {"ASTC_BC1", "performance"}, {"LOD_GUARD", "performance"}, {"FIX_C0", "performance"}, {"FIX_INDIRECT_RESET", "performance"}, {"FIX_VS_FAULT", "performance"}, {"FIX_LQ_FOLD", "performance"}, {"FIX_ZERO", "performance"}, {"FIX_SCREEN_UV", "performance"}, {"LIST_RESTART", "performance"},
+    {"BIND_SKIP", "performance"}, {"SHADER_MEMO", "performance"}, {"PIPE_MEMO", "performance"}, {"TEX_MEMO", "performance"}, {"DESC_KEEP", "performance"}, {"LOOKAHEAD", "performance"}, {"DESC_TEMPLATE", "performance"},
+    {"DESC_C0_SERIAL", "performance"}, {"DESC_SAMP_GEN", "performance"}, {"DESC_TD_HASH", "performance"}, {"DESC_STAGE_ORIGIN", "performance"}, {"DYN_KEEP", "performance"}, {"TEX_REPEAT", "performance"}, {"CS_BARRIER", "performance"},
     {"TEX_HASH", "performance"}, {"ZSTD_NATIVE", "performance"}, {"ZSTD_CHECK", "performance"}, {"MVK_UPSCALE_BLIT", "performance"},
     {"PUSH_SKIP", "performance"}, {"SPLIT_DRAWS", "performance"}, {"SPLIT_US", "performance"}, {"VK_VALIDATION", "performance"},
     {"VK_DYN_VERTEX", "performance"}, {"VK_DYN_A2C", "performance"}, {"VK_SUBGROUP_PIN", "performance"},
     {"TRACE", "diagnostics"}, {"MEM_REPORT", "diagnostics"}, {"HEAP_LAZY", "diagnostics"}, {"FLIGHT", "diagnostics"}, {"FLIGHT_SPIKE_MS", "diagnostics"},
     {"WB_FENCE_LIMIT", "diagnostics"}, {"WB_EXACT", "diagnostics"}, {"NX2_READ_NOWAIT", "diagnostics"},
-    {"NVN2_MODE_TRACE", "diagnostics"}, {"HDR_TRACE", "diagnostics"}, {"HDR_SHOULDER", "diagnostics"},
+    {"NVN2_MODE_TRACE", "diagnostics"}, {"STALL_DUMP", "diagnostics"}, {"HDR_TRACE", "diagnostics"}, {"HDR_SHOULDER", "diagnostics"},
     {"NVN2_MODE_TRACE_START_MS", "diagnostics"}, {"NVN2_MODE_TRACE_DURATION_MS", "diagnostics"},
 };
 
@@ -100,14 +100,28 @@ static const struct { const char *key, *section; } sections[] = {
 #define RESTART 0
 static const CfgMeta metas[] = {
     // Screen
-    {"FULLSCREEN", "0", "0|1", LIVE}, {"WINDOW_MODE", "windowed", "windowed|borderless|fullscreen", LIVE},
+    {"FULLSCREEN", "0", "0|1", LIVE}, {"CONSOLE", "1", "0|1", RESTART}, {"WINDOW_MODE", "windowed", "windowed|borderless|fullscreen", LIVE},
     {"WINDOW_SIZE", "1920x1080", NULL, LIVE},
     {"VK_PRESENT", "mailbox", "mailbox|fifo|immediate", LIVE}, {"GPU_INDEX", "", NULL, RESTART},
-    {"PERF_OVERLAY", "off", "off|fps|full", LIVE},
+    // The path of a Vulkan ICD JSON file ("~" expands) to use instead of the system's drivers; empty: the system's.
+    // vk_driver_env.c sets VK_DRIVER_FILES from it before the loader runs.
+    {"VULKAN_DRIVER", "", NULL, RESTART},
+    {"PERF_OVERLAY", "off", "off|fps|full|breakdown|counter", LIVE},
+    {"SPLASH", "1", "0|1|2|3", RESTART},   // vk_splash.c: the start-up screen from the window's opening to the game's first picture; 1 the canyon at sunrise, 2 the cavern, 3 the dawn over the jungle
     {"OUTPUT_RES", "1920x1080", NULL, RESTART}, {"RENDER_SCALE", "game", "game|50|59|67|75|77|100|125|150|200", RESTART},
     {"SCENE_RES", "auto", "auto|full", RESTART},   // Bananza only (dkb_wide.c)
-    {"UPSCALER", "fsr", "fsr|bilinear|dlss", LIVE}, {"SHARPNESS", "80", "0..100", LIVE}, {"SMAA", "off", "off|low|medium|high", LIVE},
-    {"FRAME_GEN", "off", "off|2x", LIVE},   // vk_framegen.c, experimental
+    // UPSCALER fsr and bilinear both mean the game's own upscaler (bilinear is the older spelling of the plain linear
+    // window filter, kept as an alias: window_filter.h wf_resolve); dlss, fsr3 and fsr4 replace it. WINDOW_FILTER is
+    // how the finished picture is scaled to the window, with every upscaler (vk_present.c, vk_fsr.c); the menu shows
+    // the two settings as the Upscaling method and Window scaling filter rows (ui/menu.cpp rows_render_options).
+    {"UPSCALER", "fsr", "fsr|bilinear|dlss|fsr3|fsr4", LIVE}, {"DLSS_PRESET", "auto", "auto|k|m", LIVE},   // vk_dlss.c preset_for
+    {"FSR4_LDR", "0", "0|1", RESTART},   // vk_fsr4.c: diagnosis, the colour is taken as perceptual up to 1
+    {"WINDOW_FILTER", "fsr1", "fsr1|linear|catmull_rom|lanczos", LIVE},
+    {"SHARPNESS", "80", "0..100", LIVE}, {"SMAA", "off", "off|low|medium|high", LIVE},
+    // vk_crt.c: a CRT look on the finished SDR picture (Hookshot's filters); lines: the virtual raster's
+    {"CRT_FILTER", "off", "off|lottes_grille|lottes_tv|hyllian|zfast", LIVE}, {"CRT_LINES", "240", "240|480|720", LIVE},
+    {"FRAME_GEN", "off", "off|auto|2x|3x|4x|5x|6x|7x|8x", LIVE},   // vk_framegen.c, experimental
+    {"FRAME_GEN_BY", "builtin", "builtin|fsr3", LIVE},   // vk_fsr3fi.c: AMD FSR 3.1's interpolation at 2x, opt-in
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ULTRAWIDE", "0", "0|1", RESTART},
     {"HUD_POSITION", "edges", "edges|centered", RESTART},
@@ -126,19 +140,26 @@ static const CfgMeta metas[] = {
     // Game
     {"FPS_LIMIT", "60", "30|40|45|60|90|120|144|display|unlimited", LIVE}, {"FPS60", "1", "0|1", LIVE},
     {"REALTIME", "1", "0|1", RESTART}, {"CLOTH_REALTIME", "1", "0|1", RESTART},
+    {"ANTILAG", "0", "0|1", LIVE},   // vk_antilag.c: AMD Anti-Lag 2, where the device has VK_AMD_anti_lag
     {"HIGHFPS_FIX", "1", "0|1", RESTART},
-    {"LANG", "", "ja|en-US|fr|de|it|es|zh-CN|ko|nl|pt|ru|zh-TW|en-GB|fr-CA|es-419|zh-Hans|zh-Hant|pt-BR", RESTART},
+    {"LANG", "", "ja|en-US|fr|de|it|es|zh-CN|ko|nl|pt|ru|zh-TW|en-GB|fr-CA|es-419|zh-Hans|zh-Hant|pt-BR|pl|th", RESTART},
     {"OPERATION_MODE", "docked", "docked|handheld", RESTART},
     {"ASSUME_FOCUS", "1", "0|1", LIVE},   // read on every focus change (ov_system.c)
     // Sound, Controls, Menu
     {"VOLUME", "100", "0..100", LIVE}, {"AUDIO_CHANNELS", "auto", "auto|stereo|5.1", RESTART},
     {"MOTION", "1", "0|1", LIVE}, {"RUMBLE_STRENGTH", "130", "0..300", LIVE}, {"RUMBLE_CURVE", "0.6", "0.2..1.5", LIVE},
-    {"RUMBLE_TRIGGERS", "0", "0|1", LIVE}, {"PAD_LAYOUT", "auto", "auto|nintendo|xbox|xbox_prompts", LIVE},
+    {"RUMBLE_TRIGGERS", "0", "0|1", LIVE}, {"RUMBLE_HD", "off", "auto|off", LIVE},
+    {"PAD_LAYOUT", "auto", "auto|nintendo|xbox|xbox_prompts", LIVE},
+    {"SWITCH2", "0", "0|1|2", RESTART},   // switch2.c: Switch 2 controllers over Bluetooth LE; 2 also logs each advertising device
+    {"COOP", "1", "0|1", LIVE},   // ov_input.c: a second gamepad is player 2 (npad No.2, Pauline)
+    {"PAD_DEVICE", "auto", NULL, LIVE}, {"PAD_FULLSCREEN_HOLD", "0", "0|1", LIVE}, {"PAD_PROMPTS", "auto", "auto|switch|playstation", RESTART},
     {"STICK_DEADZONE", "8", "0..50", LIVE}, {"MOUSE_CAMERA", "0", "0|1", LIVE}, {"MOUSE_SENS", "1", "0..10", LIVE},
     {"MENU_LANG", "", "en|ru|de", LIVE}, {"MENU_THEME", "dk", "dk|classic", LIVE},
     // Advanced: scheduling
     {"ASYNC_PREEMPT", "1", "0|1|2", RESTART}, {"REPLAY_ASYNC", "0", "0|1", RESTART},
-    {"REPLAY_THREADS", "", "0..16", RESTART},     // sliced passes (vk_exec.c par_threads): 0 off, else the recording threads; unset: 4 from 8 logical processors except on AMD, else 0
+    {"REPLAY_THREADS", "", "0..16", RESTART},     // sliced passes (vk_exec.c par_threads): 0 off, else the recording threads; unset: 6 from 12 logical processors, 4 from 8, 3 from 4, on AMD only the RX 9070 and 9070 XT on the proprietary driver (vk_caps.amd_slices), else 0
+    {"CALL_REF", "1", "0|1", RESTART},   // CallCommands of a recording without deferred records records an OP_CALL (nvn_api_cmd.c inline_recording)
+    {"RESET_CPU_LIST", "1", "0|1|2", RESTART},   // indirect-reset pointer lists read from guest memory (vk_exec_draw.c vk_exec_reset_indirect)
     {"FREE_CORES", "0", "0|1", RESTART}, {"TIMER_1MS", "1", "0|1", RESTART}, {"REC_BATCH", "0", "0..64", RESTART},
     // shaders and pipelines
     {"PIPE_WAIT", "default", "default|draw", RESTART}, {"PIPE_SKIP", "fullscreen", "strict|any|fullscreen", RESTART},
@@ -146,23 +167,25 @@ static const CfgMeta metas[] = {
     {"PIPE_PREBUILD", "1", "0|1", RESTART}, {"PREWARM_XLATE", "", "1..64", RESTART}, {"GPL", "", "0|1", RESTART},
     // textures and memory
     {"ASTC", "auto", "auto|gpu|native|cpu", RESTART}, {"MEMORY", "auto", "auto|import|mirror|verify", RESTART},
-    {"TEX_ALIAS", "1", "0|1", RESTART}, {"TEX_HASH", "1", "0|1", RESTART}, {"TEX_VRAM_PRESSURE", "90", "0..100", RESTART}, {"ASTC_BC", "0", "0|1", RESTART}, {"ZSTD_NATIVE", "1", "0|1", RESTART}, {"ZSTD_CHECK", "0", "0|1", RESTART},
+    {"WB_LAZY", "0", "0|1", RESTART},   // vk_memory.c, the lazy write-back; Linux
+    {"TEX_ALIAS", "1", "0|1", RESTART}, {"TEX_HASH", "1", "0|1", RESTART}, {"TEX_VRAM_PRESSURE", "90", "0..100", RESTART}, {"ASTC_BC", "0", "0|1", RESTART}, {"ASTC_BC1", "1", "0|1", RESTART}, {"ZSTD_NATIVE", "1", "0|1", RESTART}, {"ZSTD_CHECK", "0", "0|1", RESTART},
     // render fixes
     {"EXPERIMENTAL_GEOMETRY", "0", "0|1", RESTART}, {"NATIVE_GS", "1", "0|1", RESTART},
     {"MVK_UPSCALE_BLIT", "1", "0|1", RESTART},
-    {"LOD_GUARD", "1", "0|1", RESTART}, {"FIX_C0", "1", "0|1", RESTART}, {"FIX_INDIRECT_RESET", "1", "0|1", RESTART}, {"FIX_VS_FAULT", "1", "0|1|all", RESTART}, {"FIX_ZERO", "1", "0|1", RESTART}, {"FIX_SCREEN_UV", "1", "0|1", RESTART}, {"LIST_RESTART", "1", "0|1", RESTART},
+    {"LOD_GUARD", "1", "0|1", RESTART}, {"FIX_C0", "1", "0|1", RESTART}, {"FIX_INDIRECT_RESET", "1", "0|1", RESTART}, {"FIX_VS_FAULT", "1", "0|1|all", RESTART}, {"FIX_LQ_FOLD", "1", "0|1|all", RESTART}, {"FIX_ZERO", "1", "0|1", RESTART}, {"FIX_SCREEN_UV", "1", "0|1", RESTART}, {"LIST_RESTART", "1", "0|1", RESTART},
     {"BIND_SKIP", "1", "0|1", RESTART}, {"SHADER_MEMO", "1", "0|1", RESTART}, {"PIPE_MEMO", "1", "0|1", RESTART}, {"TEX_MEMO", "1", "0|1", RESTART},
-    {"DESC_KEEP", "1", "0|1|ab", RESTART}, {"DESC_TEMPLATE", "1", "0|1", RESTART},
-    {"DESC_C0_SERIAL", "0", "0|1|ab", RESTART}, {"DESC_SAMP_GEN", "0", "0|1|ab", RESTART}, {"DESC_TD_HASH", "0", "0|1|ab", RESTART},
+    {"DESC_KEEP", "1", "0|1|ab", RESTART}, {"LOOKAHEAD", "1", "0|1|ab", RESTART}, {"DESC_TEMPLATE", "1", "0|1", RESTART},
+    {"DESC_C0_SERIAL", "1", "0|1|ab", RESTART}, {"DESC_SAMP_GEN", "1", "0|1|ab", RESTART}, {"DESC_TD_HASH", "1", "0|1|ab", RESTART},
     {"TEX_REPEAT", "1", "0|1|ab", RESTART},
-    {"DESC_STAGE_ORIGIN", "0", "0|1|ab", RESTART},
+    {"CS_BARRIER", "0", "0|1|ab|game", RESTART},
+    {"DESC_STAGE_ORIGIN", "1", "0|1|ab", RESTART}, {"DYN_KEEP", "1", "0|1|ab", RESTART},
     {"PUSH_SKIP", "1", "0|1", RESTART}, {"SPLIT_DRAWS", "64", "0..1000", RESTART},
     {"SPLIT_US", "1000", "0..20000", RESTART},
     // Vulkan
     {"VK_VALIDATION", "0", "0|1", RESTART}, {"VK_DYN_VERTEX", "", "0|1", RESTART},
     {"VK_DYN_A2C", "", "0|1", RESTART}, {"VK_SUBGROUP_PIN", "1", "0|1", RESTART},
     // diagnostics
-    {"TRACE", "", NULL, RESTART}, {"MEM_REPORT", "0", "0..1000000", RESTART}, {"HEAP_LAZY", "1", "0|1", RESTART}, {"FLIGHT", "0", "0|1", RESTART}, {"FLIGHT_SPIKE_MS", "100", "0..60000", RESTART},
+    {"TRACE", "", NULL, RESTART}, {"MEM_REPORT", "0", "0..1000000", RESTART}, {"STALL_DUMP", "5", "0..3600", RESTART}, {"HEAP_LAZY", "1", "0|1", RESTART}, {"FLIGHT", "0", "0|1", RESTART}, {"FLIGHT_SPIKE_MS", "100", "0..60000", RESTART},
     {"WB_FENCE_LIMIT", "65536", "0..1073741824", RESTART}, {"WB_EXACT", "1", "0|1", RESTART},
     {"NX2_READ_NOWAIT", "0", "0|1", RESTART},
     {"NVN2_MODE_TRACE", "0", "0|1", RESTART},
@@ -195,6 +218,27 @@ static char *norm_key(char *key) {
     return !strncmp(key, PREFIX, PREFIX_LEN) ? key + PREFIX_LEN : !strncmp(key, "DKB_", 4) ? key + 4 : key;
 }
 
+// A value of a key with named choices ("fsr|bilinear|dlss"): written in another case it becomes the choice in place
+// ("DLSS" -> "dlss", which consumers compare exactly); a word that is none of them gets a log line, since a consumer
+// that compares names falls back without a word (upscaler = dlss with a typo would run FSR and log nothing).
+static void check_choice(const char *key, char *value, int line) {
+    const CfgMeta *m = cfg_meta(key);
+    if (!m || !m->values || strstr(m->values, "..") || !strpbrk(m->values, "abcdefghijklmnopqrstuvwxyz")) return;
+    size_t vl = strlen(value);
+    for (const char *c = m->values; *c;) {
+        size_t n = strcspn(c, "|");
+        if (n == vl && !strncasecmp(c, value, n)) {
+            memcpy(value, c, n);
+            return;
+        }
+        c += n + (c[n] == '|');
+    }
+    char *end;
+    (void)strtod(value, &end);
+    if (end != value && !*end) return;   // a number: some keys take one besides their names (scene_res = 1.5)
+    rt_log("cfg: settings file line %d: %s = '%s' is not one of %s", line, key, value, m->values);
+}
+
 static void add(char *key, char *value, int line) {
     key = norm_key(key);
     size_t vl = strlen(value);
@@ -202,6 +246,7 @@ static void add(char *key, char *value, int line) {
     if (!*key) return;
     if (!is_known(key)) rt_log("cfg: totk.ini line %d: unknown key '%s'", line, key);
     if (!*value) return;   // "key =" leaves the setting at its default
+    check_choice(key, value, line);
     for (int i = 0; i < n_entries; i++)
         if (!strcmp(entries[i].key, key)) {   // a repeated key: the later line wins
             free(entries[i].value);

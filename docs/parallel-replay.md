@@ -1,7 +1,10 @@
 # Recording the replay on several threads
 
-Status: in bananza since pull request 195 (`TOTK_REPLAY_THREADS`; since 13 November 4 threads by default from 8 logical processors, except on AMD): big passes are recorded in slices
-by up to 16 threads, each with a draw context of its own (pull request 190). The sections below follow the work in the
+Status: in bananza since pull request 195 (`TOTK_REPLAY_THREADS`; by default 4 threads from 8 logical processors since 13 November, and 6 from 12 since pull request 271, on AMD only the
+RX 9070 and 9070 XT on the proprietary driver): big passes are recorded in slices by up to 16 threads, each with a draw context of its own (pull request 190).
+The 6-thread default was measured on 16 logical processors only (a Ryzen 7 9800X3D); machines with 12 to 15, and
+Intel chips with performance and efficiency cores, were not measured, and there 6 threads leave fewer processors to
+the game's own threads. The sections below follow the work in the
 order it was done; the plan at the end is the first one and is kept for the record.
 
 ## Why
@@ -107,11 +110,12 @@ The replay keeps its state in file-level variables, written for one thread:
 ## Stage A: slices on one thread (DKB_REPLAY_THREADS=1)
 
 A pass whose targets drew at least 256 draws the last time (`par_hist`, keyed by the `OP_SET_RT` payload) opens with
-`VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT`. From its first draw the walk collects ops (`par_take`): state
-and bind ops are applied to the replay state as usual, draws are only kept, and every 1024 draws a copy of the replay
-state starts a new slice. The first op of another kind (other targets, a clear, a copy, a barrier, an indirect draw, an
-uniform update, the end of the submission) flushes (`par_flush`): each slice is replayed from its copy into its own
-secondary command buffer, inheriting the pass's formats, and the primary executes them in order and ends the pass.
+`VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT`. From its first draw the walk collects ops (`par_take`): state and
+bind ops are applied to the replay state as usual, draws (indexed indirect ones included, unless `TOTK_PAR_INDIRECT=0`)
+are only kept, and every 1024 draws a copy of the replay state starts a new slice. The first op of another kind (other
+targets, a clear, a copy, a barrier, an uniform update, the end of the submission) flushes (`par_flush`): each slice is
+replayed from its copy into its own secondary command buffer, inheriting the pass's formats, and the primary executes
+them in order and ends the pass.
 
 Kept out: passes without attachments, passes with feedback-layout targets, passes while occlusion queries count, and
 frames being dumped. Inside a slice, anything that would end, restart or begin a pass, record a full barrier or an
@@ -172,6 +176,19 @@ of theirs is attached in the feedback layout (a draw of the pass samples an atta
 slice does not know what earlier slices wrote, so it starts with every attachment marked written, and its first draw
 that samples one records the by-region barrier in the secondary command buffer. A target learned inside a slice is a
 hazard (its pass restart is dropped); a target set is left alone after eight hazards instead of one.
+
+A draw that samples a colour image through a compare sampler the driver cannot compare on (R32_SFLOAT, R16_UNORM on
+AMD) samples a depth twin, a copy the replay thread makes outside the pass (`vk_exec_draw.c` `twin_prepare`). A slice
+cannot end its pass to copy one, so such a pass used to leave its target set unsliced for good: the full-screen map,
+whose big passes sample such an image, dropped below 30 fps on an RX 9070 XT. Now the slice's draw keeps the
+colour image once and the target set learns the texture (`vk_exec_par_twin`, up to four); `par_start` copies the twins
+of the learned textures before the set's next sliced pass begins (`vk_exec_draw_twins_copy`), and the pass's slices
+read their views from a snapshot of their own (`TwinSnap`, one per update snapshot), since the replay thread copies
+twins for later passes while they record. The replaced twin's image goes after the submission, which holds the pass.
+The twins the replay thread copies for an unsliced pass of the set (`vk_exec_par_twin_seen`) are learned the same way,
+so the set's first sliced pass already has them, and an id whose texture no longer needs a twin is dropped at
+`par_start`. A texture the pass's `par_start` copied that a slice still misses is a hazard (one learned after the pass
+began is not), so a target set whose twins cannot be made is left alone after eight.
 
 ### The key of the draw history
 
@@ -396,3 +413,28 @@ draw of every slice. `twin_prepare` now answers the textures that need no twin f
 slot token, and the pipeline memo keeps recent pipelines by shader pair as well as the last one. Pipeline section:
 158 ns with four threads, 221 with six; a sliced draw 1370 and 1647 ns. Replay per draw over three alternating runs of
 each: 0.81-0.83 us against 0.84-0.92; the frame rate stayed within the route's run-to-run spread.
+
+### Stalls in slices: the texture lock across a guest read's GPU wait
+
+With six threads in the hills (RX 9070 XT), the pass ends waited for the workers about 1.2 ms a frame, mostly in about
+two waits a frame of 0.5 to 3 ms, and about 500 slices a minute took over 1 ms, the longest about 3 ms for a few hundred
+draws. Smaller slices (a cap of 128 to 256 draws, a smaller minimum, a smaller share per thread) and more spare
+descriptor pools (none was created in the frame once the perf line counted the slice threads' pools) changed nothing.
+
+Timing the contended acquires of the shared locks (`perf_lock_wait`, always on with `TOTK_TRACE=perf`) put the waits on
+the texture lock: about 117 waits over 100 us every 60 frames, about 200 ms of thread time, up to 4.4 ms. Timing the
+holds by caller (`TOTK_LOCK_HOLDS=1`) found one holder: `vk_be_guest_read` through `vk_texture_write_back`, about 1.4
+times a frame for 1.2 ms on average and up to 4.5 ms, against a few hundred long holds in all for every other caller. A
+game thread's read of GPU-written texture storage read each texture back with `vk_upload_flush(1)`, waiting under the
+lock for every GPU job queued so far. Queuing the copies under the lock, waiting for the GPU without it and writing
+the storage under it again (as #259 now does, `TOTK_WB_UNLOCKED`) took the texture lock waits from 130 to 19 per 60
+frames in a build of ours, the longest wait at a pass end from 3.3 ms to 0.4 ms and the longest slice from 4.3 to
+1.8 ms; the frame rate stayed the same (43.9 fps both, same session), since the stalled workers mostly overlapped the
+submitting thread's own collection and slices.
+
+The uniform snapshot spent 0.38 ms a submission sorting the GPU write ranges of the submissions in flight (about 7,400
+new ones a submission); `wr_prune` now sorts only those added since the last prune and merges them in (0.24 ms,
+`tests/usnap_prune_test.py`). The vk_usnap summary times its steps.
+
+The GPU time of the same spot moved between sessions (11.0 to 13.1 ms with the same build), so builds are compared in
+one session only.

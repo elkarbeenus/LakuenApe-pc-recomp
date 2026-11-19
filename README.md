@@ -31,7 +31,7 @@ Requirements: x86-64 with AVX2, Linux 6.7 or later (SteamOS 3.8 qualifies), a Vu
 |---|---|
 | Fork branch | `linux-appimage` (one branch and one build for every device) |
 | Output | `LakuenApeRecomp-<version>-x86_64.AppImage`, published as a release by `.github/workflows/fork-appimage-release.yml` |
-| Versions | upstream's `VERSION` plus the build number: `v0.3.0.2` |
+| Versions | upstream's `VERSION` plus the build number: `v0.4.2.7` |
 | License | GPL-3.0-or-later, as upstream ([LICENSE](LICENSE)); files from its own upstream keep MIT ([LICENSE-MIT](LICENSE-MIT)) |
 
 Each change is a separate commit on top of upstream, so it can be read, reverted or sent upstream on its own. Internal
@@ -39,7 +39,8 @@ names (folders, files, the game's program and its settings variables) stay upstr
 updates carry over.
 
 - **Linux AppImage.** The setup with its own Python, LLVM 23 and the Steam Runtime sniper sysroot: no system packages,
-  so SteamOS's read-only system is no obstacle. (`tools/make_release_linux.py`, docs/installer.md)
+  so SteamOS's read-only system is no obstacle. Built with upstream's own AppImage script and container since 0.4.2,
+  with the fork's name. (`tools/make_release_linux.py`, docs/installer.md)
 - **Device profiles, recognised at every start** (Linux), first of all for this fork's PC (Ryzen 7 5800X3D, RX 6600 XT,
   16 GB): a PC with an AMD card of 8 GB or less or 16 GB of RAM or less gets Full HD (1920x1080) and frame generation 2x
   (60 fps shown as 120 on a 120 Hz display or faster); the Legion Go S (firmware or Ryzen Z2 Go) 1280x800 scaled to its

@@ -391,6 +391,13 @@ static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopy
         warn_once(W_FORMAT, "copy of format %#x texture without an image: skipped", t->d.format);
         return 0;
     }
+    // An ASTC image kept as BC1 (vk_texture.c upload, astc_opaque.h) is made BC3 again first: what follows copies or
+    // encodes BC3 blocks (vk_astc_record with this format's astc_bc), and BC1 has neither their size nor alpha. One
+    // that cannot be made again is skipped, for the same reason.
+    if (f.astc_bc && !vk_texture_astc_bc3(s->img)) {
+        warn_once(W_FORMAT, "copy of format %#x texture whose BC1 image could not be made BC3: skipped", t->d.format);
+        return 0;
+    }
     const VkTexImage *img = s->img;
     if (img->aspect & VK_IMAGE_ASPECT_COLOR_BIT) s->aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     else if (img->aspect == VK_IMAGE_ASPECT_DEPTH_BIT) s->aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -450,6 +457,11 @@ static int buffer_side(const VkExec *ex, const Sub *s, uint64_t addr, uint64_t *
         return 0;
     }
     VK_MEM_PICK(m);
+    if (!m.buffer) {   // a staged pool left unbacked (vk.h VK_MEM_PICK)
+        warn_once(W_BUFFER, "texture copy buffer %#llx (%llu bytes) is not one backed span: skipped",
+                  (unsigned long long)addr, (unsigned long long)*size);
+        return 0;
+    }
     *span = m;
     *c = (VkBufferImageCopy){.bufferOffset = m.offset, .bufferRowLength = (uint32_t)(row / (uint64_t)s->bpb) * (uint32_t)s->bw,
                              .bufferImageHeight = hb * (uint32_t)s->bh, .imageSubresource = sub_layers(s),
@@ -566,8 +578,8 @@ static int copy_decoded_astc(VkExec *ex, const p_copy_t2t *p) {
     if (!p->src || p->src->d.format < 0x79 || p->src->d.format > 0x94) return 0;
     TexVkFormat f;
     if (!tex_vk_format(p->src->d.format, &f) || !f.astc_bw) return 0;
-    if (!p->dst || p->src->d.format != p->dst->d.format || f.astc_bc || p->flags ||
-        (f.vk != VK_FORMAT_R8G8B8A8_UNORM && f.vk != VK_FORMAT_R8G8B8A8_SRGB)) {
+    if (!p->dst || p->src->d.format != p->dst->d.format || p->flags ||
+        (!f.astc_bc && f.vk != VK_FORMAT_R8G8B8A8_UNORM && f.vk != VK_FORMAT_R8G8B8A8_SRGB)) {
         warn_once(W_COPY, "decoded ASTC copy requires matching RGBA8 formats and no copy flags: skipped");
         return 1;
     }
@@ -578,10 +590,21 @@ static int copy_decoded_astc(VkExec *ex, const p_copy_t2t *p) {
         return 1;
     }
     const VkTexImage *si = vk_texture_get(p->src), *di = vk_texture_get(p->dst);
+    // An image kept as BC1 is made BC3 again first: the destination because the copied texels may carry alpha, the
+    // source so that both sides have blocks of one size. Both come back from their storage. One that cannot be
+    // made again is skipped, for the same reason.
+    if (f.astc_bc && si && di && (!vk_texture_astc_bc3(si) || !vk_texture_astc_bc3(di))) {
+        warn_once(W_COPY, "decoded ASTC copy into a BC1 image that could not be made BC3: skipped");
+        return 1;
+    }
     Sub s, d;
     if (!decoded_astc_sub(p->src, &p->sv, p->has_sv, &p->sr, &f, si, &s) ||
         !decoded_astc_sub(p->dst, &p->dv, p->has_dv, &p->dr, &f, di, &d) || si->image == di->image ||
-        s.w != d.w || s.h != d.h || s.nz != d.nz) {
+        s.w != d.w || s.h != d.h || s.nz != d.nz ||
+        // BC3 images keep the ASTC texel extents, so the copy must also sit on BC3's 4x4 grid (or end at the mip edge).
+        (f.astc_bc && (((s.x | s.y | d.x | d.y) & 3) ||
+                       ((s.w & 3) && (s.x + s.w != max1(si->width >> s.level) || d.x + d.w != max1(di->width >> d.level))) ||
+                       ((s.h & 3) && (s.y + s.h != max1(si->height >> s.level) || d.y + d.h != max1(di->height >> d.level)))))) {
         warn_once(W_COPY, "decoded ASTC copy requires distinct non-bound 2D images, valid views/block regions and equal extents: skipped");
         return 1;
     }
@@ -650,6 +673,11 @@ static void copy_b2b(VkExec *ex, const p_copy_b2b *p) {
         if (n > d.avail) n = d.avail;
         VK_MEM_PICK(s);
         VK_MEM_PICK(d);
+        if (!s.buffer || !d.buffer) {   // a staged pool left unbacked (vk.h VK_MEM_PICK)
+            warn_once(W_BUFFER, "buffer copy %#llx -> %#llx (%llu bytes) leaves backed memory: rest skipped",
+                      (unsigned long long)p->src, (unsigned long long)p->dst, (unsigned long long)p->size);
+            break;
+        }
         if (s.buffer == d.buffer && s.offset < d.offset + n && d.offset < s.offset + n) {
             warn_once(W_OVERLAP, "buffer copy %#llx -> %#llx overlaps within one buffer: skipped",
                       (unsigned long long)p->src, (unsigned long long)p->dst);
@@ -690,6 +718,11 @@ static void clear_buf(VkExec *ex, const p_clear_buf *p) {
         if (!n) break;
         if (!started) vk_exec_pass_end(ex), vk_exec_barrier(ex), started = 1;
         VK_MEM_PICK(d);
+        if (!d.buffer) {   // a staged pool left unbacked (vk.h VK_MEM_PICK)
+            warn_once(W_BUFFER, "buffer fill at %#llx (%llu bytes) leaves backed memory: rest skipped",
+                      (unsigned long long)p->addr, (unsigned long long)p->size);
+            break;
+        }
         vkCmdFillBuffer(ex->cb, d.buffer, d.offset, n, p->value);
         vk_mem_gpu_wrote(&d, n);
         ex->recorded++;

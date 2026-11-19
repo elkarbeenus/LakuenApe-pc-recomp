@@ -18,6 +18,14 @@ seconds-conversion logic remains in place. The maximum step is 1/15 second;
 long stalls can still slow simulation. No rendering interpolation or frame
 generation is added. CPU and GPU performance determine the achievable rate.
 
+With the real-time step the pacer holds Bananza to 120 FPS at most, whatever the
+limit (`DKB_REALTIME_MAX_FPS`, default 120; `0` lifts the ceiling, any other
+value from 30 sets it). Above 120 FPS the step falls under half a 60 Hz frame,
+and the 3.2.0 Emerald Rush challenge levels then crash in the draw-record merge
+job (`main+0xa68f80`, #411), while the same levels play through at 120 FPS and
+with a fixed 1/60 s step. The game code that breaks below 1/120 s is not found
+yet; the ceiling keeps every step at 1/120 s or longer until it is.
+
 The controller's `+0x40` field is its chosen present interval: the native path
 stores it at `1eadec`, computes `60 / interval`, and passes it through `1ead2c`
 to `1eaed0`. Keep that interval unchanged, including values above 1; the host's

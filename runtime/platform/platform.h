@@ -97,6 +97,8 @@ uint64_t plat_now_ns(void);               // monotonic, high resolution, arbitra
 uint64_t plat_counter(void);              // the OS's raw monotonic counter (QPC on Windows), plat_counter_hz per second
 uint64_t plat_counter_hz(void);
 void plat_timer_1ms(void);                // asks the OS for timed waits accurate to 1 ms or better (call before threads)
+const char *plat_console_hide(void);     // hides the console window when this process opened it (Windows); NULL when
+                                         // done, else why it was left (for the log)
 // t * num / den for a fixed num / den without a 128-bit division per call (__udivti3 took 5% of the game's running
 // samples through plat_now_ns and rt_ticks): t * q + (t * f >> 64) with q = num / den and f = (num % den) * 2^64 / den.
 // Monotonic in t and at most one below the exact quotient while t * (num % den) / den fits 64 bits.
@@ -145,7 +147,11 @@ void plat_cond_broadcast(PlatCond *c);
 typedef struct { PlatMutex m; uint32_t owner, depth; } PlatRMutex;
 #define PLAT_RMUTEX_INIT {PLAT_MUTEX_INIT, 0, 0}
 void plat_rmutex_lock(PlatRMutex *m);
+int plat_rmutex_trylock(PlatRMutex *m);   // 1 when acquired (or held by this thread already)
 void plat_rmutex_unlock(PlatRMutex *m);
+// The holder lets the mutex go however deep it holds it, and later takes it back to that depth.
+uint32_t plat_rmutex_release(PlatRMutex *m);
+void plat_rmutex_retake(PlatRMutex *m, uint32_t depth);
 
 // One-time initialisation: the first caller runs fn(arg), every other caller waits until it returned. Zero-initialised
 // (PLAT_ONCE_INIT) has not run.
@@ -213,33 +219,64 @@ int plat_mem_state(uint64_t addr, uint64_t limit, uint64_t *end);
 // The pages of a watched reservation written since the last reset, up to max page addresses into pages, in address
 // order; reset: those reported start over as unwritten. UINT64_MAX when writes to the range are not tracked.
 uint64_t plat_mem_written(uint64_t addr, uint64_t n, uint64_t *pages, uint64_t max, int reset);
+// Before the host itself writes many pages of a watched reservation: marks [addr, addr+n) written at once, so the
+// writes that follow take no fault each (Linux: one ioctl instead of a write-protection fault per page). The pages
+// report as written at the next plat_mem_written, as they would after the writes. A no-op where a watched write
+// costs nothing extra.
+void plat_mem_prewrite(uint64_t addr, uint64_t n);
+// Sealed pages (vk_memory.c, the lazy write-back): on 1 makes the pages of [addr, addr+n) inaccessible, 0 read-write
+// again, without changing what plat_mem_state answers for them; 1 on success. The first access to a sealed page, a
+// read or a write, from any thread, goes to the function given to plat_mem_access_hook before every other fault
+// handling; it returns 1 when it made the page accessible and the access is to be retried. plat_mem_access_hook
+// returns 0 where pages cannot be sealed (then plat_mem_seal fails too).
+int plat_mem_seal(uint64_t addr, uint64_t n, int on);
+int plat_mem_access_hook(int (*fn)(uint64_t addr));
 // A write that faulted on a read-only page at addr goes to fn first; fn returns 1 when it made the page writable and
 // the write should run again, 0 to let the fault go on (to the crash handler). One hook per process.
 void plat_mem_fault_hook(int (*fn)(uint64_t addr));
 // Windows only: a read or write that faults on a reserved page inside [base, base + size) commits the 64 KiB chunk
 // around it and retries (the guest heap with TOTK_HEAP_LAZY). Lock-free in the handler; plat_mem_lazy_faults counts them.
 void plat_mem_lazy(uint64_t base, uint64_t size);
+// Windows only: what the platform knows about the commit state of the lazy range, without a system call. The end (at
+// most e) of the run of 64 KiB chunks from a that share a's state; *known is 1 when the run's chunks are known to be
+// wholly committed (by the fault handler or a plat_mem_lazy_mark), 0 when nothing is known about them.
+uint64_t plat_mem_lazy_run(uint64_t a, uint64_t e, int *known);
+void plat_mem_lazy_mark(uint64_t a, uint64_t e);   // the caller committed every whole 64 KiB chunk inside [a, e)
 uint64_t plat_mem_lazy_faults(void);
+// Windows only, for memory.c's guarded pages (the GPU-owned pages of staged mirrors, TOTK_STAGED_WB=fault, and the
+// diagnostic read probe, TOTK_STAGED_READ_PROBE): fault(addr, write, rip) sees every read or write access violation
+// first and returns 1 when it made the page accessible and the access should run again; marked(addr, n) tells
+// plat_mem_readable that the PAGE_NOACCESS pages of a range are guarded ones and count as readable; release(addr, n,
+// caller) makes the guarded pages of a range accessible before plat_mem_read hands them to the kernel. NULL hooks:
+// none.
+void plat_mem_probe_hooks(int (*fault)(uint64_t addr, int write, uint64_t rip), int (*marked)(uint64_t addr, uint64_t n),
+                          void (*release)(uint64_t addr, uint64_t n, uintptr_t caller));
 uint32_t plat_mem_lazy_failure(uint64_t *addr);   // error and address of the last failed lazy commit, 0 when none
 // Starts this program again with the same arguments and ends this process with the new one's exit code (Windows), or
 // replaces this process with it (Linux). Environment changes made before the call are passed on.
 _Noreturn void plat_reexec(void);
 
 // A crash in this executable's own code (an access violation, an illegal instruction, a division by zero, a stack
-// overflow) goes to fn, which reports it and must end the process. Faults in other modules (drivers) are left to the
-// OS. The write-fault hook above runs first. On Windows abort() (a failed assert, std::terminate) and an invalid
-// parameter to a C runtime function go there too, with the host frames in this executable: the C runtime ends the
-// process for both with 0xc0000409 and no exception.
+// overflow) goes to fn, which reports it and must end the process. Faults in other modules (drivers, Vulkan layers) are
+// first left to the code that expects them; on Windows one that nobody handles comes to fn too, with module set (the
+// last-chance filter), instead of ending the process without a report. The write-fault hook above runs first. On
+// Windows abort() (a failed assert, std::terminate) and an invalid parameter to a C runtime function go there too, with
+// the host frames in this executable: the C runtime ends the process for both with 0xc0000409 and no exception.
+// On Windows fn may then call plat_crash_dump for a minidump (thread stacks and modules, no heap) in the logs folder
+// beside the executable. It is a separate call so that fn logs its report first: writing the dump suspends the other
+// threads and can block on a lock one of them holds.
 typedef struct {
     const char *what;          // "access violation", "illegal instruction", ...
     uint32_t code;             // the Windows exception code or the signal number
-    uintptr_t rip, offset;     // the faulting instruction, and its offset in the executable
+    uintptr_t rip, offset;     // the faulting instruction, and its offset in the executable (or in module)
     int access;                // the data access that faulted: 0 read, 1 write, 8 execute; -1 when not an access
     uint64_t addr;             // its address when access >= 0
     int nframes;               // abort and invalid parameter: return addresses in this executable, innermost first
     uintptr_t frames[16];      // (rip is frames[0]); 0 for a fault, whose rip is exact
+    const char *module;        // NULL: in this executable; else the file name of the module the fault is in
 } PlatCrash;
 void plat_crash_hook(void (*fn)(const PlatCrash *c));
+const char *plat_crash_dump(void);   // from fn: writes the minidump, returns its UTF-8 path; NULL when none (always off Windows)
 int plat_mem_read(uint64_t addr, void *out, size_t n);    // copies n bytes, 0 instead of faulting on unmapped memory
 int plat_mem_readable(uint64_t addr, uint64_t n);         // every page of [addr, addr + n) can be read; no fault
 void *plat_aligned_alloc(size_t size, size_t align);      // free with plat_aligned_free; NULL on failure
@@ -407,6 +444,13 @@ void plat_cpu_load(PlatLoad *l, float *total_pct, float *proc_pct, float *temp_c
 void plat_gpu_load(PlatLoad *l, float *load_pct, float *vram_used_mb);
 // Physical memory in MB: in use and installed on the machine, and this process's working set.
 void plat_mem_info(float *used_mb, float *total_mb, float *proc_mb);
+// Linux only (the memory-pressure policy of vk_mem_pressure.c; the other hosts answer 0 and do nothing): MemAvailable,
+// SwapFree and MemTotal in bytes and whether swap is configured, from /proc/meminfo (linux_pressure.h
+// lp_parse_meminfo); 1 when read. plat_mem_trim gives the heap's freed pages back to the system (glibc malloc_trim,
+// which also returns the other threads' arenas); 1 when it released any. A no-op on the other hosts and on a C library
+// without malloc_trim.
+int plat_mem_avail(uint64_t *avail, uint64_t *swap_free, uint64_t *total, int *has_swap);
+int plat_mem_trim(void);
 // Commit charge in MB: this process's private bytes, the system's commit in use and its limit (RAM plus page files).
 // An allocation fails when the system's reaches the limit, however much physical memory is free. -1 when unknown.
 void plat_commit_info(double *proc_mb, double *used_mb, double *limit_mb);
@@ -420,6 +464,76 @@ void plat_mem_walk(void (*fn)(uint64_t base, uint64_t size, int kind, void *arg)
 // Bytes of [base, base+size) that are in the process working set (resident). Windows only (QueryWorkingSetEx); the
 // other hosts return 0.
 uint64_t plat_mem_resident(uint64_t base, uint64_t size);
+// The host's own address-space queries and protection changes, for TOTK_TRACE=perf (#317). On Windows a VirtualQuery
+// reports the whole run of pages that share the queried page's state, so its cost grows with that run (about 5 us per
+// resident MiB: a page in a long read-write stretch of the committed guest heap costs milliseconds), and while it runs
+// a GetWriteWatch over the same reservation waits. Counted per kind of caller since the last call; the other hosts,
+// whose queries cost no such scan, report zeros.
+enum { PLAT_VM_READABLE, PLAT_VM_STATE, PLAT_VM_LAZY, PLAT_VM_PROTECT, PLAT_VM_N };
+typedef struct {
+    uint64_t calls, ns, max_ns;
+    uint64_t max_run;   // the longest run a query reported, in bytes (0 for PLAT_VM_PROTECT)
+} PlatVmStat;
+void plat_vm_stats(PlatVmStat out[PLAT_VM_N]);
+// The calling thread's CPU time in ns (user and kernel), fine-grained (Windows: QueryThreadCycleTime, where
+// plat_thread_cpu_ns has GetThreadTimes' 15.6 ms steps), for telling work from waiting in one timed call.
+uint64_t plat_self_cpu_ns(void);
+
+// ---- operations in flight (TOTK_TRACE=perf): what every thread was inside when a write-watch query waited
+// A GetWriteWatch waits while another thread's VirtualQuery, VirtualProtect, commit or decommit holds the process's
+// address-space lock, and the long write-watch queries of a layer exit (50 to 100 ms for 2 MiB) did not say whose. Each
+// operation below records its thread, kind, range and start in that thread's slot while it runs, and goes to a ring of
+// finished operations when it ends; plat_op_overlap lists those that overlapped a given interval on other threads.
+// plat_op_totals sums the time inside each kind per thread role. The system calls are recorded by the Windows platform
+// layer (the other hosts' queries cost no scan of the run), the host operations around them by the runtime, on every
+// host. Off (one predicted branch) until plat_op_trace; nested operations are recorded inside their outer one, so a
+// pool finalize includes the thaw it runs, and the thaw its queries and protection changes.
+enum {
+    PLAT_OP_VQ_READABLE = PLAT_VM_READABLE, PLAT_OP_VQ_STATE = PLAT_VM_STATE, PLAT_OP_VQ_LAZY = PLAT_VM_LAZY,
+    PLAT_OP_PROTECT = PLAT_VM_PROTECT,   // the VirtualQuery kinds of PlatVmStat, and VirtualProtect
+    PLAT_OP_COMMIT, PLAT_OP_DECOMMIT,    // VirtualAlloc MEM_COMMIT, VirtualFree MEM_DECOMMIT
+    PLAT_OP_WRITE_WATCH,                 // GetWriteWatch
+    PLAT_OP_THAW,                        // memory.c: a range of frozen regions made writable (mem_thaw, a mapping change)
+    PLAT_OP_FAULT_THAW,                  // memory.c: a write into a frozen region thaws it
+    PLAT_OP_FREEZE,                      // memory.c mem_freeze
+    PLAT_OP_FRZ_WAIT,                    // memory.c: waiting for frz_lock, which a thaw or a freeze holds
+    PLAT_OP_TOUCH,                       // memory.c mem_touch: the lazy heap's pages committed for a kernel or driver access
+    PLAT_OP_HEAP_SIZE,                   // memory.c mem_set_heap_size (SetHeapSize)
+    PLAT_OP_POOL_INIT, PLAT_OP_POOL_FINI,  // vk_memory.c vk_pool_init, vk_pool_fini (nvnMemoryPoolInitialize, Finalize)
+    PLAT_OP_POOL_WAIT,                   // vk_memory.c pool_fini_wait: a used pool's release waits for the GPU
+    PLAT_OP_IMPORT, PLAT_OP_IMPORT_FREE, // vkAllocateMemory and vkFreeMemory of a host-pointer import (pinning, unpinning)
+    PLAT_OP_FILE_READ,                   // fs_host.c and romfs.c: a positional read into guest memory
+    PLAT_OP_N
+};
+enum { PLAT_OP_OTHER, PLAT_OP_GAME, PLAT_OP_RENDER, PLAT_OP_REPLAY, PLAT_OP_ROLES };   // thread roles (plat_op_role)
+extern int plat_op_on;
+void plat_op_trace(void);                                   // turns the recording on, once (it never goes off)
+void plat_op_role(int role);                                // the calling thread's role in plat_op_totals (default OTHER)
+const char *plat_op_name(int kind);
+const char *plat_op_role_name(int role);
+int plat_op_begin_(int kind, uint64_t addr, uint64_t size);
+void plat_op_end_(int token, uint64_t run);
+// The token goes to plat_op_end, which must be called on the same thread, innermost first. run: what a VirtualQuery
+// reported (its RegionSize), 0 for the other kinds.
+static inline int plat_op_begin(int kind, uint64_t addr, uint64_t size) {
+    return __builtin_expect(plat_op_on, 0) ? plat_op_begin_(kind, addr, size) : -1;
+}
+static inline void plat_op_end(int token, uint64_t run) {
+    if (token >= 0) plat_op_end_(token, run);
+}
+typedef struct {
+    uint32_t tid;
+    int role, kind, depth;   // depth: how many operations of the same thread it runs inside
+    int done;                // 0: still running at the plat_op_overlap call (t1 is that call's time)
+    uint64_t addr, size, run, t0, t1;   // plat_now_ns
+} PlatOp;
+// The operations of threads other than skip_tid that overlapped [t0, t1], ended ones (from the newest back) and those
+// still running, at most max of them; *lost is 1 when the ring has been overwritten since t0, so that older ones may
+// be missing.
+int plat_op_overlap(uint64_t t0, uint64_t t1, uint32_t skip_tid, PlatOp *out, int max, int *lost);
+typedef struct { uint64_t calls, ns, max_ns; } PlatOpTotal;
+// Per role and kind, the operations that ended since the last call: their count, time and longest. Read and reset.
+void plat_op_totals(PlatOpTotal out[PLAT_OP_ROLES][PLAT_OP_N]);
 
 // ---- child processes: a program with stdin and stdout piped to us (stderr discarded), no console window.
 typedef struct PlatChild PlatChild;

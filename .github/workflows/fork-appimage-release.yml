@@ -33,26 +33,34 @@ jobs:
           version="$(cat VERSION).${GITHUB_RUN_NUMBER}"
           echo "$version" > VERSION
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Free disk space   # the LLVM release archive and the sniper SDK need several GB
-        run: sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-dotnet@v4   # build_xlate.py links totk_xlate with NativeAOT against the sniper sysroot
-        with:
-          dotnet-version: "10.0.x"
-      - name: Install the build dependencies
+      - name: Install the test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make pkg-config binutils xvfb xauth fonts-dejavu-core clang lld
-          python -m pip install pillow pytest
+          sudo apt-get install -y clang lld xvfb xauth
+          python -m pip install pytest
       - run: python tools/check_content.py
-      - name: Tests of the fork's changes   # device profiles, German menu, launcher, when-done actions, build priority, file chooser
+      - name: Tests of the fork's changes   # device profiles, German menu, launcher, when-done actions, build priority
         run: |
           python tests/device_profile_test.py --cc clang
           python tests/menu_text_de_test.py --cc clang
           python -m pytest -q tests/installer_power_test.py tests/installer_update_test.py tests/installer_launch_test.py
-      - run: xvfb-run -a python tools/make_release_linux.py --game dkb --appimage
+      # The AppImage as upstream's dkb-release.yml builds it: the pinned toolchain, then the folder in the pinned
+      # container, with the fork's file name
+      - name: Fetch refs
+        run: sh tools/fetch_refs.sh
+      - name: Fetch the release toolchain
+        run: python tools/make_release_linux.py --fetch-toolchain --out build/ci-toolchain
+      - name: Build the self-contained AppImage in the pinned container
+        run: |
+          python tools/make_release_linux.py --game dkb --stub --out build/release/DKB-Setup-linux \
+            --appimage "build/release/LakuenApeRecomp-${{ steps.version.outputs.version }}-x86_64.AppImage" --ci-container
+      - name: Smoke-test the AppImage
+        env:
+          DKB_SETUP_HOME: ${{ runner.temp }}/dkb-setup
+        run: xvfb-run -a ./build/release/LakuenApeRecomp-*-x86_64.AppImage --appimage-extract-and-run --selftest
       - uses: actions/upload-artifact@v4
         with:
           name: LakuenApeRecomp-AppImage

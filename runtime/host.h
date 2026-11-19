@@ -34,6 +34,26 @@ void prof_write(void);                          // idempotent; boot.c calls it b
 uint64_t perf_begin(void);                      // start time of a wait; pair with perf_end
 void perf_end(int kind, uint64_t t0);           // counts render-thread time only
 void perf_replay(uint64_t t0);                  // replay (NVN -> Vulkan recording) time on any thread, waits inside it included
+// TOTK_TRACE=perf: the replay of a slow frame by part (perf.c, "replay by part"). submit_record (vk_sync.c) brackets its
+// recording with perf_ph_replay_begin/end; inside, each part named here is timed on the recording thread, every
+// perf_begin/perf_end pair among them (the PERF_ kinds above keep their numbers), and each part's time is its own, the
+// named parts inside it taken out. The rest of the replay is printed as such. perf_ph_begin returns 0 on a thread that is
+// not recording or with the trace off, and perf_ph_end does nothing then; perf_ph_begin_cpu also takes the thread's CPU
+// time, for the parts where waiting and working are to be told apart.
+enum { PERF_PH_IMPORT = PERF_N, PERF_PH_MIRROR, PERF_PH_MIRROR_BEGIN, PERF_PH_MSYNC, PERF_PH_WW, PERF_PH_SHADER,
+       PERF_PH_IMAGE, PERF_PH_DLSS_CREATE, PERF_PH_DLSS_EVAL, PERF_PH_TEMPORAL, PERF_PH_SPIRV_HASH, PERF_PH_SLICE_START,
+       PERF_PH_SLICE_WAIT, PERF_PH_SUBMIT, PERF_PH_USNAP, PERF_PH_BUDGET, PERF_PH_PROLOGUE, PERF_PH_MIRROR_END,
+       PERF_PH_WB_LISTS, PERF_PH_ST_SPLIT, PERF_PH_WB_HELD, PERF_PH_N };
+int perf_ph_replay_begin(void);                 // returns what perf_ph_replay_end takes
+void perf_ph_replay_end(int prev);
+int perf_ph_worker_begin(void);                 // a slice worker records a slice: its parts go to a bank of their own
+void perf_ph_worker_end(int prev);
+uint64_t perf_ph_begin(void);
+uint64_t perf_ph_begin_cpu(void);
+void perf_ph_end(int part, uint64_t t0);
+// A pass the replay recorded unsliced because its targets had no history (vk_exec.c vk_exec_pass_end): its time,
+// with the parts inside it, for the same line.
+void perf_ph_unsliced(uint64_t ns, uint32_t draws);
 // Running totals after a replay: draws and dispatches recorded, descriptor pools taken and created (the per-draw cost
 // and pool line of TOTK_TRACE=perf).
 void perf_replay_totals(uint64_t draws, uint64_t pools_taken, uint64_t pools_created);
@@ -50,6 +70,11 @@ enum { PERF_CNT_PIPE_ASYNC, PERF_CNT_PIPE_SKIP, PERF_CNT_TEX_UP, PERF_CNT_TEX_RE
        PERF_CNT_PIPE_WAIT, PERF_CNT_ONESHOT_WAIT, PERF_CNT_PIPE_BUILT, PERF_CNT_TEX_NEW, PERF_CNT_TEX_ALIAS,
        PERF_CNT_WB, PERF_CNT_WB_SKIP, PERF_CNT_N };
 void perf_count(int kind);
+// TOTK_TRACE=perf: a contended acquire of one of the replay's shared locks waited ns (callers time only after a failed
+// try). The perf line counts the waits over 100 us per lock and the longest: slices of parallel passes stalled for
+// milliseconds now and then, and a lock held by another thread is one cause.
+enum { PERF_LOCK_TEXTURE, PERF_LOCK_POOL, PERF_LOCK_MIRROR, PERF_LOCK_GEN, PERF_LOCK_N };
+void perf_lock_wait(int lock, uint64_t ns);
 void perf_present(uint64_t frame);
 void perf_summary_flush(void);                  // prints the frame-time summary of the running period (exit); the 60 s lines come from perf_present
 void gfx_exit_log(void);                        // back end's lines for the exit summary (weak no-op in prof_win.c)
@@ -171,13 +196,55 @@ int mem_freeze(uint64_t a);                                // makes the 2 MiB re
                                                            // mem_thaw thaws it; 1 frozen (or already), 0 refused
 int mem_frozen(uint64_t a);                                // the 2 MiB region of a is frozen: no page in it changed
                                                            // since its freeze
+// Thaws the regions over [a, a+n) for good: mem_freeze refuses them.
+void mem_freeze_exclude(uint64_t a, uint64_t n);
+// Called by mem_thaw, before its lock, for a range with such regions.
+void mem_thaw_hook(void (*fn)(uint64_t a, uint64_t n));
 void mem_thaw(uint64_t a, uint64_t n);                     // makes the frozen regions over [a, a+n) writable again;
                                                            // before a kernel write (file read) into guest memory
+int mem_guest_readable(uint64_t a, uint64_t n);            // 1 a read of [a, a+n) succeeds (heap, mapped alias pages;
+                                                           // GPU-owned staged pages fault into the fetch), 0 it may
+                                                           // not, -1 not guest heap or alias memory; from memory.c's
+                                                           // own map, no system call
+void mem_touch_stats(uint64_t out[4]);                     // mem_touch totals: calls, 64 KiB chunks the commit map
+                                                           // answered, chunks queried, map errors (TOTK_TOUCH_MAP=verify)
 void mem_touch(uint64_t a, uint64_t n);                    // commits the lazy guest heap (TOTK_HEAP_LAZY) over [a, a+n)
                                                            // before a kernel or driver access; no-op otherwise
+// Read probe (memory.c, TOTK_STAGED_READ_PROBE, Windows only): mem_probe_on reads the switch once; mem_probe_protect
+// makes the pages of a range PAGE_NOACCESS until their first access, which is counted; mem_probe_release lifts it
+// uncounted; mem_probe_copy copies guest memory without lifting it; mem_probe_log logs the counts (final: the totals).
+int mem_probe_on(void);
+void mem_probe_protect(uint64_t a, uint64_t n);
+void mem_probe_release(uint64_t a, uint64_t n);
+void mem_probe_copy(void *dst, uint64_t src, uint64_t n);
+void mem_probe_log(uint64_t frame, int final);
+extern volatile uint64_t mem_probe_frame;                  // the present being made (vk_mem_census)
+// GPU-owned pages (memory.c, vk_memory.c staged mirror with TOTK_STAGED_WB=fault, Windows only): mem_guard_own makes a
+// page PAGE_NOACCESS (1 when it changed the protection); its first access, or a kernel-path release (mem_thaw,
+// mem_touch, plat_mem_read), calls the hook with the page read-write and claimed, and the hook fetches the GPU's bytes
+// and calls mem_guard_clear. mem_guard_tryclaim claims another owned page the same way (0: not owned or busy).
+// mem_guard_state: 1 owned, 2 being settled, 0 neither. mem_guard_drop opens a range's owned pages without fetching
+// (the pool goes away) and returns how many; *claimed: the pages it left to the threads that claim them. mem_thaw_keep
+// is mem_thaw without settling guarded pages.
+void mem_guard_hook(int (*fetch)(uint64_t page, int write, uint64_t rip, int kernel));
+int mem_guard_own(uint64_t p);
+int mem_guard_own_range(uint64_t a, uint64_t n, int *failed);   // mem_guard_own over a range, one protection per run
+int mem_guard_tryclaim(uint64_t p);
+void mem_guard_clear(uint64_t p);
+int mem_guard_state(uint64_t a);
+int mem_guard_drop(uint64_t a, uint64_t n, int *claimed);
+void mem_thaw_keep(uint64_t a, uint64_t n);
+void mem_touch_keep(uint64_t a, uint64_t n);               // mem_touch without settling guarded pages
+void mem_commit_later(uint64_t a, uint64_t n);             // mem_touch_keep over [a, a+n) on a thread of its own, about
+                                                           // 2 s later (a staged pool, never imported); no-op without
+                                                           // TOTK_HEAP_LAZY
+void mem_commit_later_stats(uint64_t out[4]);              // since the last call: ranges, bytes, ns, ranges dropped
 void mem_commit_report(const char *when);                  // logs where the process's commit goes (TOTK_MEM_REPORT)
 void mem_freeze_stats(uint64_t *frozen, uint64_t *freezes, uint64_t *fault_thaws, uint64_t *other_thaws);
                                                            // regions frozen now; freezes and thaws since the last call
+#define MEM_FRZ_NO_N 4
+void mem_freeze_refusals(uint64_t out[MEM_FRZ_NO_N]);     // mem_freeze's refusals since the last call: a guarded page,
+                                                           // held after a thaw, never frozen, page states (memory.c)
 void mem_kernel_free(void *p, uint64_t size);              // TLR/TLS reuse after thread exit
 
 // ---- modules (loader.c)
@@ -222,6 +289,8 @@ extern const char rt_port_version[];                       // VERSION at the bui
 // ---- kernel (kernel.c)
 typedef struct RtThread RtThread;
 Cpu *kern_cpu(void);                                       // current guest thread's Cpu, NULL on host threads
+void kern_cores_report(const char *tag);                    // logs each virtual core's owner and where its host
+                                                           // thread runs (one sample); from a guest thread, rare
 uint32_t kern_main_thread(Cpu **cpu);                      // main thread object and Cpu for the calling host thread
                                                            // (main.npdm: 1 MiB stack at the top of the stack region,
                                                            // priority 44, core 0); on the main thread: its handle
@@ -281,9 +350,16 @@ uint64_t res_heap_extra_kib(void);                         // added to the HeapD
 int res_heapdef_build(const void *in, size_t n, void **out, size_t *out_n);   // the HeapDef table (.byml.zs) with
                                                            // the grown heaps, malloc'd; 0 = cannot (logged)
 void res_heapdef_served(void);                             // romfs.c serves the grown table
+int res_heapdef_grown(void);                               // 1 once romfs.c serves it
+const char *res_heapdef_path(void);                        // the game's HeapDef table in the RomFS
 void res_init(void);                                       // after rt_patches_init: the patch page and the sets
 void dkb_wide_init(void);                                  // Bananza-only virtual display and camera patch values
+uint64_t dkb_wide_heap_extra_kib(void);                    // Bananza: what the render-target pool needs added to GSys
+int dkb_native_aa(void);                                   // Bananza: the game's upscale step runs at full size now
+int dkb_native_aa_issued_by(uint64_t caller);              // ... and a dispatch issued at that guest address is it
+void dkb_native_aa_live(void);                             // re-read the Upscaler setting (frame_step_present)
 int dkb_wide_output(unsigned out[2]);                      // active mode; optional output gets its size or the stock size
+void dkb_wide_upscale_output(unsigned out[2]);             // Bananza: the size the game's upscaler writes
 int res_sizes(unsigned out[2], unsigned scene[2]);         // the output and scene sizes in effect (the game's own
                                                            // until res_init switched the sets on). Bananza: the game's
                                                            // upscaler output and input; 0 (both zero) when none ran
@@ -299,10 +375,12 @@ void rt_patches_init(void);                                // after ldr_load: sw
                                                            // page committed; logs the sets
 int rt_patch_set(const char *name);                        // index of a set of generated patches.h, -1 if absent
 int rt_patch_enabled(int set);                             // the set is on (0 for -1)
+int rt_patch_wanted(int set);                              // the switch rt_patches_init gives it, readable before
 void rt_patch_disable(int set);                            // before the guest starts: a set needs another that is off
 void rt_patch_switch(int set, int on);                     // at run time (live settings): each site takes the new code
                                                            // the next time it runs
 void *rt_patch_page(void);                                 // the page the patched code reads (NULL without the table)
+void rt_guard_stats(uint64_t *checks, uint64_t *misses);   // pointer guards run and page-cache misses since the last call
 void dkb_camera_init(void);                                // camera patch callbacks, before hostfn_seal
 void frame_step_init(void);                                // after rt_patches_init: the real-time step's first value
 int frame_step_realtime(void);                             // the real-time step is on: presents ignore the interval
@@ -354,6 +432,7 @@ int probe_vkpool(void);                                   // vk_pool_probe.c: or
 int probe_vkreset(void);                                  // vk_reset_probe.c: original indirect reset ordering
 int probe_vkclear(void);                                                  // vk_clear_probe.c
 int probe_movie(void);                                     // movie_probe.c: host VP9 movie::Decoder on one RomFS movie
+int probe_splash(void);                                    // vk_splash.c: the start-up screen drawn in states and sizes
 int vk_pipeline_prepare_shaders(void);                     // vk_pipeline.c: --prepare-shaders (tools/prepare_shaders.py)
 int vk_pipeline_translate_shaders(void);                  // vk_pipeline.c: --translate-shaders (installer/bananza.py)
 int vk_pipeline_warm_shaders(void);                       // vk_pipeline.c: --warm-shaders (tools/build_game.py)

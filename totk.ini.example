@@ -17,6 +17,12 @@
 # cloth_realtime = 1
 # Fix for physics that bounce at high frame rates.
 # highfps_fix = 1
+# AMD Anti-Lag 2 (experimental, off by default): on an AMD GPU whose driver has VK_AMD_anti_lag, the driver starts each
+# frame as late as it can, for less delay from input to the screen. The row appears in Display > Frame rate only where
+# the device has it. On Linux, Mesa's RADV has it through the layer VK_LAYER_MESA_anti_lag, which the game loads when
+# antilag = 1 at start (so on RADV, turning it on needs a restart), unless you set ENABLE_LAYER_MESA_ANTI_LAG or
+# DISABLE_LAYER_MESA_ANTI_LAG yourself. Elsewhere changes while the game runs take effect at once.
+# antilag = 0
 
 [performance]
 # The keys of this section and of [diagnostics] are for testing and troubleshooting, and take effect at the next start.
@@ -59,8 +65,13 @@
 # imported into Vulkan), mirror (pools used as buffers get a copy in video memory) or verify (mirror plus a check of
 # every copy; slow).
 # memory = auto
+# Linux: copy a shader's storage write back to the game's memory only when the game's code touches it (0 or 1;
+# default 0).
+# wb_lazy = 0
 # A new texture created over a live texture's memory starts with that content instead of empty.
 # tex_alias = 1
+# Drop or release cached textures when VRAM usage rises above this percentage (0 to 100; 0 = off). Default: 90.
+# tex_vram_pressure = 90
 # Host zstd decoder in place of the game's (0 = the game's), and a check that decodes every call both ways and logs
 # the differences (1 = on; slow).
 # zstd_native = 1
@@ -132,12 +143,27 @@
 # in front again. 0: it pauses when its window loses focus, as it does on the Switch when Home is pressed; a load
 # interrupted that way can stop for good. Read at each focus change.
 # assume_focus = 1
-# Performance overlay in the top right corner: off, fps, or full (frame rate, mean and longest frame time). F10
-# cycles the modes in game, as do both stick clicks (L3 + R3) on a controller.
+# 0 hides the console window the game opens next to its own, for frontends such as Playnite; the log still goes to
+# logs/dkb.log. A command prompt the game was started from stays as it is. Changing this needs a restart.
+# console = 1
+# Performance overlay in the top right corner: off, fps, full (frame rate, mean and longest frame time), breakdown
+# (full, with each frame's parts stacked in the graph: the game's own work, the GPU frame prep, the waits by cause, the
+# frame limit) or counter (the frame rate as a large outlined number with no background). F10 cycles the modes in
+# game, as do both stick clicks (L3 + R3) on a controller.
 # perf_overlay = off
+# The start-up screen: from the moment the window opens to the game's first picture, the window shows a scene of
+# its own with what the start prepares (the shaders, the pipelines earlier runs met), how far each step is and, on a
+# long start, about how long it has left. 1 draws it in a canyon at sunrise, 2 in a cavern deep under the ground,
+# lit by a shaft of light from far above, 3 over a dawn above a jungle ridge; 0 opens the window at the game's first
+# frame instead, as before. Read at start.
+# splash = 1
 # Which GPU to use: its index in the log, or part of its name. Default: the first discrete GPU with Vulkan 1.3.
 # gpu_index = 0
 # gpu_name = NVIDIA
+# Linux: a Vulkan driver of your own for this game only, such as a Mesa build outside the system's folders: the path of
+# its ICD .json file ("~" expands), for example ~/.local/mesa/share/vulkan/icd.d/radeon_icd.x86_64.json. Empty uses the
+# system's drivers. A VK_DRIVER_FILES or VK_ICD_FILENAMES already set in the environment wins. Read at start.
+# vulkan_driver =
 # Game resolution: the size the game draws its picture and interface in (1280x720 to 7680x4320). Above 1920x1080 the
 # game's texture heap and memory pool grow with it. Another shape than 16:9, such as 3440x1440 on a 21:9 monitor or
 # the Steam Deck's 1280x800 (16:10), gives the camera's view that shape and lays the HUD out for it. The installer
@@ -150,29 +176,68 @@
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # TotK only: Bananza draws at the game's own size, and the HUD and dkb.log report its upscaler's input and output sizes.
 # render_scale = game
-# Scaling to the window when it is larger than the game resolution: fsr (AMD FSR 1) or bilinear, and FSR's sharpening
-# from 0 (off) to 100. Changes while the game runs take effect at once.
+# What scales the 3D picture up (the menu's Upscaling method row): fsr and bilinear are both the game's own upscaler;
+# dlss, fsr3 and fsr4 below replace it. bilinear is also the older spelling of window_filter = linear, honoured only
+# while window_filter is not set. Changes while the game runs take effect at once.
 # upscaler = dlss (experimental, NVIDIA RTX only, read at start) also replaces the game's own upscaler with NVIDIA DLSS
-# and keeps FSR for the window; it needs nvngx_dlss.dll next to dkb.exe (docs/dkb-dlss.md) and falls back to the
+# and leaves the window to window_filter; it needs nvngx_dlss.dll next to dkb.exe (docs/dkb-dlss.md) and falls back to the
 # game's upscaler, with a "dlss:" line in the log, when anything is missing.
+# upscaler = fsr3 (experimental, any GPU with push descriptors and extended storage formats, read each frame) does the same
+# with AMD FSR 3.1's temporal upscaler, from the same jitter, scene depth and camera motion DLSS gets; frames without a scene
+# at the input size go to the game's upscaler. The log has "fsr3:" lines (a summary every 1800 frames and at exit).
+# upscaler = fsr4 (experimental) runs AMD FSR 4 from the same inputs, through AMD's own signed DLLs
+# (amd_fidelityfx_loader_vk.dll and amd_fidelityfx_upscaler_vk.dll next to dkb.exe, docs/dkb-dlss.md) or, on Linux, a Vulkan
+# FSR 4 library named amd_fidelityfx_upscaler_vk.so (set upscaler = fsr4 before the start there); without them, or on a GPU
+# with no FSR 4 (NVIDIA), the log has one "fsr4:" line saying why and FSR 3.1 runs instead.
 # upscaler = fsr
+# The folder AMD's FSR 4 library is looked for in first (upscaler = fsr4); the game's program's folder comes after it.
+# fsr_dir =
+# How the finished picture is scaled to the window, with any upscaler (the menu's Window scaling filter row): fsr1 (the
+# default: AMD FSR 1 where the window is larger than the game's picture, as before, and nothing else), or linear,
+# catmull_rom or lanczos, which also sharpen with Sharpness at any window size and scale the game's own HDR picture
+# (hdr_native) on its PQ code values. A window smaller than the picture is filtered over the pixels each window pixel
+# covers. Takes effect at once.
+# window_filter = fsr1
 # Bananza only: auto keeps the game's dynamic 3D resolution (usually two thirds of output_res on each side), full draws
-# the 3D scene at output_res (sharper, more GPU cost; no upscaler or DLSS then), a ratio from 1.0 to 3.0 draws it at
+# the 3D scene at output_res (sharper, more GPU cost; no upscaler then, except that on update 3.2.0 upscaler = fsr3,
+# fsr4 or dlss runs at that size as native anti-aliasing, docs/dkb-testing.md), a ratio from 1.0 to 3.0 draws it at
 # output_res divided by that ratio and upscales it to output_res (1.5 with upscaler = dlss: DLSS Quality at output_res).
 # Read at start.
 # scene_res = auto
+# Sharpening of the finished picture, 0 (off) to 100, at any window size, the game resolution's size included, and on the
+# game's own HDR picture too. Takes effect at once.
 # sharpness = 80
 # SMAA 1x anti-aliasing of the final picture: off (the default), low, medium or high. It runs after the picture is scaled to
-# the window (FSR or bilinear) and before the menu is drawn, so the game's HUD is smoothed as well. Changes while the game
+# the window (window_filter) and before the menu is drawn, so the game's HUD is smoothed as well. Changes while the game
 # runs take effect at once.
 # smaa = off
-# Frame generation (experimental, Donkey Kong Bananza only): off (the default) or 2x. At 2x a frame is made between each two of the game's, from their
-# motion, and shown first, then the game's own frame half a frame later, so a game at 30 fps is shown at 60. The menu
-# overlay is drawn on every shown frame and is never interpolated. No frame is made after a gap of over 100 ms, when the
-# picture's size changes, for the game's own HDR picture, when the display's refresh is below the doubled rate, or unless
-# vk_present is mailbox or immediate. The settings menu has it under Graphics. The legion_go_s and pc_small device
-# profiles turn it on. Changes while the game runs take effect at once.
+# CRT filter on the finished picture, the game's HUD included, after scaling and SMAA and before the menu: off (the
+# default), lottes_grille (Timothy Lottes' aperture grille), lottes_tv (the same, curved, with a shadow mask), hyllian
+# (Hyllian Fast) or zfast (zfast CRT). crt_lines is its virtual screen's lines: 240 (the default), 480 or 720, at most
+# half the window's height. SDR only: the game's own HDR picture (hdr_native) bypasses it, and the log says so once.
+# Changes take effect at once.
+# crt_filter = off
+# crt_lines = 240
+# Frame generation (experimental, Donkey Kong Bananza only): off (the default), auto, or 2x to 8x. Frames are made between
+# each two of the game's, from their motion. At 2x one is made and shown first, then the game's own frame half a frame
+# later, so a game at 30 fps is shown at 60. auto gives each refresh of the display between two game frames a frame, up
+# to 4 a game frame (the refresh over 30 fps), shown one game frame later. 3x to 8x make that many frames for each of the
+# game's, and no more than the display can show: a game at 60 fps on a 165 Hz display gets 2 whatever the multiplier. The
+# menu overlay is drawn on every shown frame and is never interpolated. No frame is made after a gap of over 100 ms,
+# when the picture's size changes, when at 2x the display's refresh is below the doubled rate, or unless vk_present is
+# mailbox or immediate. The game's own HDR picture (hdr_native) gets made frames too. Changes while the game runs take
+# effect at once.
+# The Display tab of the settings menu (F1) has this as Frame generation.
 # frame_gen = off
+# What makes the frames of frame_gen = 2x (experimental): builtin, the default, from the picture alone; fsr3, AMD FSR 3.1's
+# frame interpolation, which also uses the scene's depth and motion. fsr3 runs only while a temporal upscaler (upscaler =
+# dlss, fsr3 or fsr4) draws the 3D below the output size, at 2x, with the display's refresh over twice the game's rate; a
+# frame it cannot make (no depth or motion, a camera cut, the first frame after a gap) gets the built-in one, and the other
+# frame_gen values always use the built-in one, as does the game's own HDR picture (hdr_native), which AMD's passes do
+# not take. AMD's passes are given the picture copied before the game draws its HUD, so the HUD is not moved with the
+# scene. Changes while the game runs take effect at once.
+# The menu's Frame generation made by row shows while frame_gen is 2x.
+# frame_gen_by = builtin
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider
 # window is no longer stretched as it used to be; stretch fills the window. Changes while the game runs take effect at
@@ -205,8 +270,8 @@
 # hdr_native = 1 lets the game make its own HDR10 picture (the console's HDR mode) instead of lifting the SDR one, while
 # the swapchain is HDR10; hdr_peak_nits and hdr_game_nits are what it is told the display has. The game caps its peak
 # at 1400 nits, so a higher hdr_peak_nits changes nothing there; the display is told the game's peak. Its highlights
-# reach that peak (the game's own curve stops at about 1.36 times hdr_game_nits). FSR, SMAA and the colour adjustment
-# are off with hdr_native.
+# reach that peak (the game's own curve stops at about 1.36 times hdr_game_nits). FSR, SMAA, the CRT filter and the colour
+# adjustment are off with hdr_native.
 # hdr_native = 0
 
 [language]
@@ -232,6 +297,13 @@
 # audio_channels = auto
 
 [input]
+# Choose the controller in F1 > Controls > Controller Device. The saved device key is opaque.
+# Saved manual choices apply at startup, with first-available fallback. New connections take over automatically.
+# Disconnecting the active controller falls back to another device. Automatic changes do not overwrite this preference.
+# pad_device = auto
+# Default: Plus + Minus opens settings. Opt in to a physical Start + Back fullscreen hold instead (0.5 s).
+# Guide/Home and keyboard F1 still open settings in either mode.
+# pad_fullscreen_hold = 0
 # Gamepad motion controls (0 = off) and vibration (0 = off).
 # motion = 1
 # rumble = 1
@@ -240,12 +312,24 @@
 # rumble_strength = 130
 # rumble_curve = 0.6
 # rumble_triggers = 0
+# Switch 2 controllers (Pro Controller 2, Joy-Con 2) over Bluetooth LE, with HD rumble: 1 on, 0 off, 2 on and logs
+# every advertising Bluetooth device once (for a report when one is not found). Hold Sync on a controller with the game
+# open to pair it with this PC; after that any button reconnects it. Do not pair it in the system's Bluetooth settings.
+# Over USB they work through SDL without this. Takes effect at the next start. docs/controls.md, "Switch 2 controllers".
+# switch2 = 0
+# Two-player mode (Bananza: Pause > Co-op mode > Share controllers, player 2 is Pauline): a second gamepad is player 2
+# while one is connected, and it no longer takes player 1 over when it is plugged in. 0 keeps one controller.
+# coop = 1
 # Which gamepad button is Switch A: nintendo (by position: east A, south B, west Y, north X), xbox (south A, east B,
 # west X, north Y, as an Xbox pad labels them; cross A on a PlayStation pad) or auto (nintendo for a pad with Nintendo
 # labels, xbox for the others). xbox_prompts: the buttons as nintendo, and the game's prompts swapped to the Xbox
 # labels (A with B, X with Y; it loads romfs-patches-xbox, docs/controls.md, "Xbox button prompts"). The bind_ lines
 # below apply on top. Changes while the game runs take effect at once; the xbox_prompts prompts at the next start.
 # pad_layout = auto
+# Bananza: the button prompts for a PlayStation pad (cross, circle, square, triangle, L1 to R2, Options, Create;
+# docs/controls.md, "PlayStation button prompts"). auto takes them when a DualShock or DualSense pad is connected at
+# start, playstation always, switch never. The game reads its fonts at boot, so a change takes effect at the next start.
+# pad_prompts = auto
 # Gamepad stick dead zone in percent of full deflection (0 to 50). Raise it for a stick that drifts: inside the circle
 # the stick reads centred, and the rest of its travel is scaled to start there.
 # stick_deadzone = 8
@@ -272,8 +356,12 @@
 # bind_Y = pad:north, key:mouse_l
 
 [files]
-# Folder with RomFS mod files that replace or add game files. Default: none.
+# Folder with RomFS mod files that replace or add game files (docs/dkb-testing.md, "Mods"). Default: the mods folder next
+# to dkb.exe; 0 turns mods off.
 # romfs_mods =
+# The extracted RomFS folder the game reads in place of romfs/romfs.bin. The setup writes it when "Use the RomFS where it
+# is" is ticked (--romfs-in-place); the folder must then stay where it is. Default: unset, the packed romfs.bin.
+# romfs_dir =
 
 [diagnostics]
 # Experimental Switch 2 reads of up to 4 KiB without waiting; requires replay_async = 1. Opt-in only: its background

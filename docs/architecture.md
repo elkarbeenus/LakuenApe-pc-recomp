@@ -62,6 +62,9 @@ MacNativeGames cannot run on x86-64 as is: its CPU path executes ARM64 code nati
 Every guest thread is a host thread. TotK assumes Horizon's scheduler: three application cores, a thread runs only on a core in its affinity mask, and a higher-priority thread takes a core from a lower-priority one. The game keeps per-core data without locks and relies on that, so the host models it (`runtime/kernel.c`):
 
 - Three virtual cores. A guest thread runs guest code only while it holds a core; the others wait in a priority-ordered list.
+- Core masks as Horizon sets them: a new thread may run on its ideal core alone (core -2 is the process's, main.npdm's
+  core 0) until SetThreadCoreMask widens it. Bananza leaves some threads on that default, which then run only when the
+  main thread waits; with cores 0-2 instead, one of them changed a job graph while the main thread built it (#317).
 - Preemption. When a waiting thread has a better priority than a holder on a core it may use, exactly one holder is flagged. The holder checks the flag at its next SVC and at every indirect call (`rt_dispatch`: two loads when nobody waits), checks again under the kernel lock that a better thread still waits, and only then hands its core over. The indirect-call check comes from SavageWindRecomp's BotW port; checking only at SVCs left a better thread waiting up to 26 ms.
 - Asynchronous preemption (from MacNativeGames 8bf0893, on unless `TOTK_ASYNC_PREEMPT=0`). Game code can run for
   milliseconds with neither (`TOTK_CORE_DIAG=1` measures it): a waiter that has spun 250 us suspends the holder and,
@@ -90,12 +93,19 @@ Every guest thread is a host thread. TotK assumes Horizon's scheduler: three app
   `TOTK_UBO_SNAPSHOT`); without it, late draws read another object's matrix.
 - Driver data. The NVN driver keeps a per-stage constant bank (c0) that shaders read for things like point size, dispatch size and base instance. The back end fills it the way the driver does.
 - Shaders: the Ryujinx translator 1.3.2 with MacNativeGames' patches and ours (`tools/xlate/patches/`), built with .NET 10 NativeAOT as `totk_xlate.exe` and run as a separate process. Its SPIR-V goes to Vulkan directly. `tools/prepare_shaders.py` and `totk.exe --prepare-shaders` translate and compile the variants of MacNativeGames' shared list ahead of play (29,587 for 1.4.3); the rest are translated on first use and cached on disk.
-- Pipelines: `VK_EXT_graphics_pipeline_library` where the driver has it. Shader stages are compiled ahead into libraries; a draw that meets a new state links them at once (fast link), and an optimised pipeline replaces the linked one when a background thread finishes it. Pipeline keys seen in play are saved and built at boot. A draw whose pipeline is not ready is skipped when one of its pass's targets was rendered in the previous frame, and waits otherwise, so one-shot passes are never lost; a full-screen draw is skipped as well rather than waiting (`TOTK_PIPE_SKIP`); the stage libraries a waiting draw needs are built on idle workers in parallel (`TOTK_PIPE_WAIT`). Without the extension, a missing pipeline is built on a worker and the draw waits or is skipped by the same rule.
+- Pipelines: `VK_EXT_graphics_pipeline_library` where the driver has it. Shader stages are compiled ahead into libraries; a draw that meets a new state links them at once (fast link), and an optimised pipeline replaces the linked one when a background thread finishes it. Pipeline keys seen in play are saved and built at boot. A draw whose pipeline is not ready is skipped when one of its pass's targets was rendered in the previous frame, and waits otherwise, so one-shot passes are never lost; a full-screen draw is skipped as well rather than waiting (`TOTK_PIPE_SKIP`); the stage libraries a waiting draw needs are built on idle workers in parallel (`TOTK_PIPE_WAIT`). Without the extension, a missing pipeline is built on a worker and the draw waits or is skipped by the same rule. Before a one-shot draw waits, the pipelines of the submission's next 256 draws are keyed from their ops on a scratch copy of the replay state and queued, so a burst of new one-shot passes builds on the workers in parallel instead of one pipeline at a time (`TOTK_LOOKAHEAD`).
 - Resolution. Patch sets make the game read its output, swapchain and scene sizes from the patch page
   (MacNativeGames' sites); `resolution.c` sets them from `output_res` and `render_scale` and grows the texture heap
-  and the application pool to match. When the window is larger than the output, `vk_fsr.c` runs AMD FSR 1 (EASU,
-  RCAS) on the present, then `vk_smaa.c` runs SMAA 1x on the finished picture when `TOTK_SMAA` asks for it, before the
-  overlay is drawn. An `output_res` that is not 16:9 (more than 1% off, `res_is_16x9`) also switches on the
+  and the application pool to match. On the present, `vk_fsr.c` scales the picture to the window by `window_filter`
+  (`window_filter.h`: AMD FSR 1 (EASU, RCAS) where the window is larger, the default; or linear, Catmull-Rom,
+  Lanczos 2). `shaders/win_scale.comp` filters over the picture's pixels one window pixel covers, so a smaller window
+  is filtered too, then sharpens by `TOTK_SHARPNESS` for the filters the player chose; with FSR 1 (the default) and the
+  window the picture's size nothing runs and the picture is blitted. Then `vk_smaa.c` runs SMAA 1x on the finished
+  picture when `TOTK_SMAA` asks for it, then `vk_crt.c` a CRT filter when `TOTK_CRT_FILTER` asks for one (Hookshot's:
+  the picture reduced by area to a virtual raster of `TOTK_CRT_LINES` lines, then drawn back at full size as
+  scanlines and a mask by Lottes', Hyllian's or zfast's shader), before the overlay is drawn. SMAA and the CRT filter
+  are SDR passes: the game's own HDR picture skips them, and with the lifted HDR output they run on the 8-bit
+  picture before the HDR pass. An `output_res` that is not 16:9 (more than 1% off, `res_is_16x9`) also switches on the
   `aspect` patch set, which hands the output's ratio to the camera, and `romfs.c` `overlay_init` loads the
   `romfs-patches-<w>x<h>` overlay for it when it exists (`tools/make_romfs_patches.py --aspect`, laid out by
   `tools/ultrawide_layout.py`; the installer builds ten sizes: 21:9 2560x1080, 3440x1440, 3840x1600, 5120x2160, 32:9
@@ -106,7 +116,8 @@ Every guest thread is a host thread. TotK assumes Horizon's scheduler: three app
   stretched.
 - HDR (`hdr = 1`, experimental, `vk_hdr.c`). The game's window texture is 8-bit sRGB, so HDR is an inverse tonemap of
   it, not the scene's real range. On an HDR10 swapchain (A2B10G10R10, ST 2084; `VK_EXT_swapchain_colorspace`,
-  `VK_EXT_hdr_metadata`) the present chain is game, FSR, SMAA, the HDR pass, the menu. FSR and SMAA write an 8-bit
+  `VK_EXT_hdr_metadata`) the present chain is game, FSR, SMAA, the CRT filter, the HDR pass, the menu. FSR, SMAA and the CRT
+  filter write an 8-bit
   image of the swapchain's size; `shaders/hdr_encode.frag` then linearises it, stretches the largest channel above a
   knee towards `hdr_peak_nits` (all channels scaled together, so hue is kept), puts white at `hdr_game_nits`, converts
   Rec. 709 to Rec. 2020 and PQ-encodes into the swapchain image. The in-game menu is drawn into an RGBA8 image and
@@ -115,8 +126,12 @@ Every guest thread is a host thread. TotK assumes Horizon's scheduler: three app
 - Native HDR, Bananza 3.2.0 (`hdr_native = 1` with `hdr = 1`). `ov_gfx.c` answers the game's
   `nn::vi::QueryDisplayHdrStatus` with "on" and `hdr_peak_nits`, and `QueryDisplayHdrPaperWhite` with
   `hdr_game_nits`. The game then switches to its own HDR mode: its window texture becomes A2B10G10R10 holding
-  Rec. 2020 PQ, which `vk_present.c` `present_image` copies onto the HDR10 swapchain as it is (no colour adjustment,
-  FSR or SMAA, which expect an SDR picture). The game's tonemap stops its highlights at about 1.36 times paper white,
+  Rec. 2020 PQ, which `vk_present.c` `present_image` puts on the HDR10 swapchain as the codes it is: blitted, or,
+  when `window_filter` and Sharpness ask for it (a filter other than FSR 1, and the window differs from the picture or
+  Sharpness is above 0), scaled and sharpened by `vk_fsr.c` with `win_scale_pq` (`win_scale.comp` with `WIN_SCALE_PQ`:
+  the filters and the sharpen work on the PQ code values and write an A2B10G10R10 image, so the 10 bits stay;
+  `window_filter.h` `wf_plan`). No colour adjustment, SMAA or CRT filter, which expect an SDR picture. The game's
+  tonemap stops its highlights at about 1.36 times paper white,
   whatever peak it is told; `spirv_hdr_shoulder.c` (`DKB_HDR_SHOULDER=0` turns it off) rewrites its composite stage
   so they reach the peak, leaving everything below the shoulder's knee as the game grades it. Findings and
   measurements: [hdr-native-plan.md](hdr-native-plan.md).

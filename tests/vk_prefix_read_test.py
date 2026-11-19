@@ -30,8 +30,12 @@ def main():
     execute = (ROOT / 'runtime/vk_exec.c').read_text()
     code = '\n'.join(function(sync, name) for name in (
         'static VkCommandBuffer split_impl(', 'VkCommandBuffer vk_sync_split(', 'VkCommandBuffer vk_sync_split_wait('))
+    if 'VkResult vk_sync_queue_submit(' in sync:   # the parts' vkQueueSubmit2 goes through it
+        code = function(sync, 'VkResult vk_sync_queue_submit(') + '\n' + code
     code += '\n' + function(execute, 'int vk_exec_read_buffer(')
     code += '\n' + function(execute, 'static void views_to_fence(')
+    if 'static _Thread_local const op_hdr *walk_at;' in execute:   # the lookahead's view of the walk, cleared after it
+        code += '\nstatic _Thread_local const op_hdr *walk_at __attribute__((unused));\nstatic const uint64_t *la_handles;\nstatic int la_n, la_i;'
     code += '\n' + function(execute, 'static int record_impl(')
     code += '\n' + function(execute, 'int vk_exec_record(')
     code += '\n' + function(execute, 'int vk_exec_record_work(')
