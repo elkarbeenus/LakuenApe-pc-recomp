@@ -46,7 +46,7 @@ jobs:
         run: |
           python tests/device_profile_test.py --cc clang
           python tests/menu_text_de_test.py --cc clang
-          python -m pytest -q tests/installer_power_test.py tests/installer_update_test.py tests/installer_launch_test.py
+          python -m pytest -q tests/installer_power_test.py tests/installer_update_test.py tests/installer_launch_test.py tests/installer_device_test.py
       # The AppImage as upstream's dkb-release.yml builds it: the pinned toolchain, then the folder in the pinned
       # container, with the fork's file name
       - name: Fetch refs

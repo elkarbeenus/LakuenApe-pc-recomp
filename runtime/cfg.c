@@ -313,9 +313,12 @@ static const ProfileKey LEGION_GO_S[] = {
 // such a card's video memory and such a PC's RAM (the game commits about 14 GB) pay for. Frame generation 2x shows 60
 // fps as 120 on a display of 120 Hz or more and makes no frames on a slower one (vk_framegen.c), with mailbox, the
 // default present mode, which it needs. The game itself stays at 60 fps, its own speed (realtime stays off): the made
-// frames only show it smoother.
+// frames only show it smoother. The upscaler is AMD FSR 4, which needs AMD's library and a card it supports
+// (vk_fsr4.c); without them, as on the RX 6600 XT under Linux, the same setting runs FSR 3.1 (vk_fsr3.c
+// vk_fsr3_wanted), whose temporal upscaling is sharper than the game's own at Full HD and runs on any card.
 static const ProfileKey PC_SMALL[] = {
     {"OUTPUT_RES", "1920x1080"}, {"VK_PRESENT", "mailbox"}, {"FRAME_GEN", "2x"}, {"FPS_LIMIT", "60"},
+    {"UPSCALER", "fsr4"},
 };
 enum { PROFILE_NONE, PROFILE_DECK, PROFILE_LEGION_GO_S, PROFILE_PC_SMALL, PROFILE_COUNT };
 static const struct { const char *name, *title; const ProfileKey *keys; size_t n; } PROFILES[PROFILE_COUNT] = {

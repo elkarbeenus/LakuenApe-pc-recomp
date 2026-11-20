@@ -61,7 +61,7 @@ if r.returncode:
 
 GIB = 1 << 30
 KEYS = ['TOTK_OUTPUT_RES', 'TOTK_WINDOW_SIZE', 'TOTK_OPERATION_MODE', 'TOTK_FPS_LIMIT', 'TOTK_FULLSCREEN',
-        'TOTK_FRAME_GEN', 'TOTK_VK_PRESENT']
+        'TOTK_FRAME_GEN', 'TOTK_VK_PRESENT', 'TOTK_UPSCALER']
 
 
 def machine(root, dmi=None, cpu=None, ram_gib=None, cards=()):
@@ -116,7 +116,7 @@ CASES = [
      'pc_small', {'TOTK_OUTPUT_RES': '1920x1080', 'TOTK_WINDOW_SIZE': '(unset)', 'TOTK_FPS_LIMIT': '60'}),
     ('this fork\'s pc', dict(cpu='AMD Ryzen 7 5800X3D 8-Core Processor', ram_gib=15.5, cards=[('0x1002', 8 * GIB)]), {},
      'pc_small', {'TOTK_OUTPUT_RES': '1920x1080', 'TOTK_FRAME_GEN': '2x', 'TOTK_VK_PRESENT': 'mailbox',
-                  'TOTK_FPS_LIMIT': '60'}),
+                  'TOTK_FPS_LIMIT': '60', 'TOTK_UPSCALER': 'fsr4'}),
     ('player turns frame generation off', dict(ram_gib=15.5), {'TOTK_FRAME_GEN': 'off'}, 'pc_small',
      {'TOTK_FRAME_GEN': 'off', 'TOTK_OUTPUT_RES': '1920x1080'}),
     ('pc with 16 gb ram and a large card', dict(cpu='AMD Ryzen 7 7700X', ram_gib=15.5, cards=[('0x10de', None)]), {},
@@ -133,6 +133,9 @@ CASES = [
      {'TOTK_OUTPUT_RES': '1920x1200', 'TOTK_FPS_LIMIT': '40'}),
 ]
 
+sys.path.insert(0, str(src))
+from installer import device   # the launcher's copy of the same rules (installer/device.py)
+
 failed = 0
 with tempfile.TemporaryDirectory() as tmp:
     for i, (name, spec, env, want_profile, want) in enumerate(CASES):
@@ -142,6 +145,10 @@ with tempfile.TemporaryDirectory() as tmp:
         got = run(root, env)
         bad = [f'profile {got.get("profile")} != {want_profile}'] if got.get('profile') != want_profile else []
         bad += [f'{k}={got.get(k)} != {v}' for k, v in want.items() if got.get(k) != v]
+        py_env = {k: v for k, v in env.items()}
+        py_env['DKB_DEVICE_SYSROOT'] = str(root)
+        py = device.detect(env=py_env)['profile']
+        bad += [f'installer/device.py says {py}'] if py != got.get('profile') else []
         print(('FAIL' if bad else 'ok  ') + f' {name}' + (': ' + '; '.join(bad) if bad else ''))
         failed += bool(bad)
 if failed:

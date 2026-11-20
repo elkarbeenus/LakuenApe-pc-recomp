@@ -127,7 +127,8 @@
 #     output_res = 1280x800, render_scale = game, upscaler = fsr, vk_present = mailbox, fps_limit = 40,
 #     operation_mode = handheld, frame_gen = 2x
 #   pc_small (16 GB of RAM or less, or AMD graphics cards of 8 GB or less; this fork's RX 6600 XT PC): output_res =
-#     1920x1080, vk_present = mailbox, frame_gen = 2x, fps_limit = 60 (the game at 60, shown at 120 on 120 Hz)
+#     1920x1080, vk_present = mailbox, frame_gen = 2x, fps_limit = 60 (the game at 60, shown at 120 on 120 Hz),
+#     upscaler = fsr4 (FSR 3.1 where FSR 4 cannot run, as on an RX 6600 XT under Linux)
 # device_profile = auto
 # Presentation mode: mailbox (default when the driver offers it, vsync otherwise), fifo (vsync) or immediate.
 # vk_present = mailbox

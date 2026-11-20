@@ -32,6 +32,7 @@ try:
 except ImportError:
     ImageGrab = None
 
+from . import device
 from . import fsr4
 from . import ini
 from . import launch
@@ -288,8 +289,13 @@ class App:
     # ---- text -----------------------------------------------------------------------------------------------------
 
     def bind_text(self, widget, option, id, **params):
+        """widget's option as the catalog's text id, again on every language switch. id may also be a function
+        that builds the text from the catalog (as the launcher's device line does from several ids)."""
         self.bound.append((widget, option, id, params))
-        widget.configure(**{option: self.cat(id, **params)})
+        widget.configure(**{option: self.bound_text(id, params)})
+
+    def bound_text(self, id, params):
+        return id() if callable(id) else self.cat(id, **params)
 
     def label(self, parent, id, **kw):
         w = ttk.Label(parent, **kw)
@@ -304,7 +310,7 @@ class App:
     def retext(self):
         self.root.title(self.cat('ui.title'))
         for widget, option, id, params in self.bound:
-            widget.configure(**{option: self.cat(id, **params)})
+            widget.configure(**{option: self.bound_text(id, params)})
         self.fill_languages()
         self.fill_when_done()
         self.refresh_form()
@@ -1099,6 +1105,8 @@ class App:
         self.label(f, 'ui.launch_title', style='Title.TLabel').pack(anchor='w')
         self.launch_text = ttk.Label(f, wraplength=620, justify='left')
         self.launch_text.pack(anchor='w', pady=(8, 8))
+        self.device_label = ttk.Label(f, wraplength=620, justify='left', style='Muted.TLabel')   # the machine
+        self.device_label.pack(anchor='w', pady=(0, 8))
         self.launch_update_box = ttk.Frame(f)   # packed when a newer release is found
         self.launch_update_text = ttk.Label(self.launch_update_box, style='Warn.TLabel', wraplength=620, justify='left')
         self.launch_update_text.pack(anchor='w', pady=(0, 6))
@@ -1125,6 +1133,9 @@ class App:
         self.launch_dest = dest
         self.vars['dest'].set(str(dest))
         self.bind_text(self.launch_text, 'text', 'ui.launch_text', dest=str(dest))
+        found = device.detect(dest)   # the profile the game's runtime/cfg.c will pick on this machine
+        self.bind_text(self.device_label, 'text',
+                       lambda: device.detected_text(found, self.cat) + ' ' + self.cat('ui.device_change'))
         hours, minutes = launch.hours_minutes(launch.playtime(dest))
         played = self.cat('ui.time_hm', hours=hours, minutes=minutes) if hours else self.cat('ui.time_m', minutes=minutes)
         self.bind_text(self.playtime_label, 'text', 'ui.playtime', time=played)

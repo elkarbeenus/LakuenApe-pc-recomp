@@ -42,12 +42,14 @@ updates carry over.
   so SteamOS's read-only system is no obstacle. Built with upstream's own AppImage script and container since 0.4.2,
   with the fork's name. (`tools/make_release_linux.py`, docs/installer.md)
 - **Device profiles, recognised at every start** (Linux), first of all for this fork's PC (Ryzen 7 5800X3D, RX 6600 XT,
-  16 GB): a PC with an AMD card of 8 GB or less or 16 GB of RAM or less gets Full HD (1920x1080) and frame generation 2x
+  16 GB): a PC with an AMD card of 8 GB or less or 16 GB of RAM or less gets Full HD (1920x1080), AMD FSR 4 (FSR 3.1
+  where FSR 4 cannot run, as on an RX 6600 XT under Linux) and frame generation 2x
   (60 fps shown as 120 on a 120 Hz display or faster); the Legion Go S (firmware or Ryzen Z2 Go) 1280x800 scaled to its
   screen, handheld mode and frame generation 2x at 40 fps; the Steam Deck (firmware or APU) 1280x800, 40 fps, handheld
   mode. Frame generation is in the settings menu under Graphics. A profile only sets defaults for
   the keys the settings file does not set, so your own settings and the menu's always win; `device_profile = desktop`
-  turns it off, and the log names the profile and why. The values are in `totk.ini.example` ([display],
+  turns it off, and the log names the profile and why. The launcher's start screen shows the recognised machine and
+  the settings the game starts with (`installer/device.py`, which follows the same rules). The values are in `totk.ini.example` ([display],
   device_profile). (`runtime/cfg.c`, `tests/device_profile_test.py`)
 - **When done:** standby or shut down when the build ends (a minute's countdown with **Don't do it** first; never after
   Cancel), for a build overnight. (`installer/power.py`)
