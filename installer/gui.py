@@ -1300,7 +1300,9 @@ class App:
             self.open_button.state(['!disabled'])
         else:
             self.open_button.state(['disabled' if not Path(m.dest or '.').is_dir() else '!disabled'])
-        if result == 'ok' and self.game == 'bananza' and install_state(m.dest or '') == 'ready':
+        # Upstream's Play button belongs to its own launcher (--base). Without one, the AppImage's finish_play
+        # (shown in poll) starts the game and counts the play time, so only one Play button is ever visible.
+        if result == 'ok' and self.game == 'bananza' and self.launcher and install_state(m.dest or '') == 'ready':
             self.play_after.pack(side='right', padx=(0, 8))
         else:
             self.play_after.pack_forget()
