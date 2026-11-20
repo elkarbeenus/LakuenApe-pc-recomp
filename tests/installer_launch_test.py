@@ -104,6 +104,10 @@ class LaunchTest(unittest.TestCase):
         state.write_text('{"format": 1, "steps": {}, "release": "0.3.0.6+abc"}')
         self.assertFalse(launch.outdated(self.dest, '0.3.0.6+abc'))
         self.assertTrue(launch.outdated(self.dest, '0.3.0.7+def'))
+        self.assertFalse(launch.outdated(self.dest, '0.3.0.6+def'))   # the same release from another commit
+        state.write_text('{"format": 1, "steps": {}, "release": "0.4.2.9+88a4ff6"}')
+        self.assertFalse(launch.outdated(self.dest, '0.3.0.6+2d6a8d9'))   # built by a newer setup
+        self.assertEqual(launch.plain('0.4.2.9+88a4ff6'), '0.4.2.9')
 
     def test_playtime_adds_up(self):
         self.assertEqual(launch.playtime(self.dest, self.settings), 0)

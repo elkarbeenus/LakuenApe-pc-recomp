@@ -1112,15 +1112,14 @@ class App:
         self.launch_update_text.pack(anchor='w', pady=(0, 6))
         self.launch_update_buttons = ttk.Frame(self.launch_update_box)
         self.launch_update_buttons.pack(anchor='w')
+        # One question at a time, one button each: Play at the bottom is always the way to play without updating.
         self.button(self.launch_update_buttons, 'ui.update_now', self.do_update, style='Accent.TButton').pack(side='left')
-        self.button(self.launch_update_buttons, 'ui.update_skip', self.play_game).pack(side='left', padx=(8, 0))
         self.outdated_box = ttk.Frame(f)   # packed when the game in the folder is older than this setup
         self.outdated_text = ttk.Label(self.outdated_box, style='Warn.TLabel', wraplength=620, justify='left')
         self.outdated_text.pack(anchor='w', pady=(0, 6))
         row = ttk.Frame(self.outdated_box)
         row.pack(anchor='w')
         self.button(row, 'ui.install_update', self.update_install, style='Accent.TButton').pack(side='left')
-        self.button(row, 'ui.install_skip', self.play_game).pack(side='left', padx=(8, 0))
         self.launch_note = ttk.Label(f, wraplength=620, justify='left')
         self.launch_note.pack(anchor='w', pady=(8, 0))
         self.launch_dest = None
@@ -1140,13 +1139,14 @@ class App:
         played = self.cat('ui.time_hm', hours=hours, minutes=minutes) if hours else self.cat('ui.time_m', minutes=minutes)
         self.bind_text(self.playtime_label, 'text', 'ui.playtime', time=played)
         installed = launch.installed_release(dest)
-        self.install_outdated = installed is not None and installed != self.layout.release
+        self.install_outdated = launch.outdated(dest, self.layout.release)
         if self.install_outdated:
             if installed:
-                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated', installed=installed,
-                               version=self.layout.release)
+                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated', installed=launch.plain(installed),
+                               version=launch.plain(self.layout.release))
             else:
-                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated_unknown', version=self.layout.release)
+                self.bind_text(self.outdated_text, 'text', 'ui.install_outdated_unknown',
+                               version=launch.plain(self.layout.release))
             self.outdated_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
         self.show('launch')
 
@@ -1175,7 +1175,12 @@ class App:
                 self.play_or_ask()
             return
         self.update_info = info
-        self.bind_text(self.launch_update_text, 'text', 'ui.update_found', tag=info['tag_name'], version=self.layout.release)
+        # The newer setup updates the install by itself once it starts (--auto-start), so its question replaces the
+        # one about the install: the player sees a single update.
+        self.outdated_box.pack_forget()
+        self.install_outdated = False
+        self.bind_text(self.launch_update_text, 'text', 'ui.update_found', tag=info['tag_name'],
+                       version=launch.plain(self.layout.release))
         self.launch_update_box.pack(anchor='w', fill='x', pady=(4, 4), before=self.launch_note)
         self.root.deiconify()
         self.fit()

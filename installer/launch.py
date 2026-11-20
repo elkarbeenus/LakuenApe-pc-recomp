@@ -16,6 +16,7 @@ import urllib.request
 from pathlib import Path
 
 from . import state as statefile
+from . import update
 
 GAME_EXE = 'dkb.exe' if os.name == 'nt' else 'dkb'
 ASSET = re.compile(r'LakuenApeRecomp-.+-x86_64\.AppImage')
@@ -75,9 +76,17 @@ def installed_release(dest):
 
 
 def outdated(dest, release):
-    """Whether the game in dest was built by another release than the one running: the setup updates it then."""
+    """Whether the game in dest was built by an older release than the one running (or by one that recorded none):
+    the setup updates it then. A game built by a newer setup is not outdated; the update check offers that setup."""
     installed = installed_release(dest)
-    return installed is not None and installed != release
+    if installed is None:
+        return False
+    return installed == '' or update.compare(installed, release) == -1
+
+
+def plain(version):
+    """'0.4.2.9' from '0.4.2.9+88a4ff6': the version as the player reads it, without the commit."""
+    return str(version).split('+', 1)[0]
 
 
 def playtime(dest, path=None):
